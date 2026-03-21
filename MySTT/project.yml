@@ -1,0 +1,34 @@
+name: MySTT
+options:
+  bundleIdPrefix: com.mystt
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    from: "0.9.0"
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: "2.0.0"
+targets:
+  MySTT:
+    type: application
+    platform: macOS
+    sources:
+      - path: MySTT
+        excludes:
+          - "**/.gitkeep"
+    settings:
+      base:
+        INFOPLIST_FILE: MySTT/Info.plist
+        CODE_SIGN_ENTITLEMENTS: MySTT/MySTT.entitlements
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_APP_SANDBOX: NO
+        PRODUCT_BUNDLE_IDENTIFIER: com.mystt.app
+        SWIFT_VERSION: "5.9"
+        COMBINE_HIDPI_IMAGES: YES
+        PRODUCT_NAME: MySTT
+    dependencies:
+      - package: WhisperKit
+      - package: KeyboardShortcuts

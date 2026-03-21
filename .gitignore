@@ -1,0 +1,29 @@
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Xcode
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.dSYM/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Claude Code sensitive settings
+.claude/settings.local.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# User-specific MySTT data
+.mystt/

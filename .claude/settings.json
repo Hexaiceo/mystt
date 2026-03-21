@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/Users/igor.3.wolak.external/Downloads/**)"
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "teammateMode": "tmux",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"/Users/igor.3.wolak.external/Downloads/.claude/hooks/forge-check-update.js\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/forge-context-monitor.js"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "node \"/Users/igor.3.wolak.external/Downloads/.claude/hooks/forge-statusline.js\""
+  }
+}
