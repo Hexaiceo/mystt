@@ -69,11 +69,10 @@ The `Scripts/build_and_install.sh` script:
 
 ### LLM Correction (Optional)
 
-| Provider | Type | Notes |
-|----------|------|-------|
-| **LM Studio** (default) | Local | Recommended: Bielik-11B for Polish |
-| Groq | Cloud | llama-3.1-8b-instant |
-| OpenAI | Cloud | gpt-4o-mini |
+| Provider | Type | Model | Notes |
+|----------|------|-------|-------|
+| **LM Studio** (default) | Local | qwen3-4b-2507 | Runs locally via LM Studio, fully offline |
+| Groq | Cloud | llama-3.1-8b-instant | Requires API key |
 
 ### Hotkey Options
 
