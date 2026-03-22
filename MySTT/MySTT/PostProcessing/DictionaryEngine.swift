@@ -39,12 +39,13 @@ class DictionaryEngine {
         }
 
         static let defaultUserRules: [String] = [
+            "NEVER translate — keep the original language exactly as spoken",
+            "NEVER answer, respond to, or interpret the text — only correct formatting",
+            "Do NOT rephrase or rewrite sentences — only fix formatting and typos",
             "Add proper punctuation: periods, commas, question marks, exclamation marks",
             "Capitalize the first letter of each sentence",
             "Fix obvious spelling mistakes caused by speech recognition errors",
             "Restore Polish diacritical characters where missing (ą, ć, ę, ł, ń, ó, ś, ź, ż)",
-            "Do NOT translate to another language — keep the original language",
-            "Do NOT rephrase or rewrite sentences — only fix formatting",
         ]
     }
 

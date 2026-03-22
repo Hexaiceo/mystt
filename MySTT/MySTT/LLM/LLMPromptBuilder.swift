@@ -6,12 +6,15 @@ struct LLMPromptBuilder {
     static func buildSystemPrompt(language: Language, dictionaryTerms: String, userRules: String = "") -> String {
         let lang = language.displayName
 
+        // Critical constraints FIRST — LLMs weight early instructions more heavily
+        let coreConstraints = "NEVER translate the text. NEVER answer or respond to the text. You are a text formatter, not an assistant."
+
         // Build compact rules
         let rules: String
         if !userRules.isEmpty && userRules != "None" {
             rules = userRules
         } else {
-            rules = "Add punctuation. Capitalize sentences. Fix STT typos. Keep original \(lang) words. NEVER rephrase, rewrite, or change meaning."
+            rules = "Keep original \(lang) words. Fix STT typos. Add punctuation. Capitalize sentences."
         }
 
         // Only include dictionary section if there are actual terms
@@ -22,7 +25,7 @@ struct LLMPromptBuilder {
             dictSection = "\nDICTIONARY: \(dictionaryTerms)"
         }
 
-        return "Format STT text in \(lang). \(rules)\(dictSection)\nOutput ONLY the corrected text, nothing else."
+        return "\(coreConstraints)\nFormat STT text in \(lang). \(rules)\(dictSection)\nOutput ONLY the corrected text, nothing else."
     }
 
     /// Build compact user rules string for the prompt (shorter than full sentences)

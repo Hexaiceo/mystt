@@ -65,7 +65,15 @@ final class LLMPromptBuilderTests: XCTestCase {
 
     func test_buildSystemPrompt_isCompact() {
         let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
-        // Compact prompt should be under 200 characters
-        XCTAssertLessThan(prompt.count, 200, "System prompt should be compact for fast local inference")
+        // Compact prompt should be under 300 characters (includes core constraints)
+        XCTAssertLessThan(prompt.count, 300, "System prompt should be compact for fast local inference")
+    }
+
+    func test_buildSystemPrompt_coreConstraintsFirst() {
+        let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
+        // Critical constraints must appear at the very beginning
+        XCTAssertTrue(prompt.hasPrefix("NEVER translate"))
+        XCTAssertTrue(prompt.contains("NEVER answer"))
+        XCTAssertTrue(prompt.contains("text formatter, not an assistant"))
     }
 }
