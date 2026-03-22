@@ -12,8 +12,8 @@ Package.resolved
 .AppleDouble
 .LSOverride
 
-# Claude Code sensitive settings
-.claude/settings.local.json
+# Claude Code
+.claude/
 
 # IDE
 .vscode/
