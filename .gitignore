@@ -2,10 +2,14 @@
 .build/
 Package.resolved
 
-# Xcode
+# Xcode build output (includes SourcePackages, compilation caches, app bundles)
+**/build/
+DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 *.dSYM/
+*.ipa
+*.dmg
 
 # macOS system files
 .DS_Store
