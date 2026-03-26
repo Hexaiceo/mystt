@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
     <key>NSMicrophoneUsageDescription</key>
     <string>MySTT requires microphone access to capture speech for transcription.</string>
     <key>NSSpeechRecognitionUsageDescription</key>

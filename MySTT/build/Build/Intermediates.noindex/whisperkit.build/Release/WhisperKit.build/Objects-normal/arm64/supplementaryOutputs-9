@@ -1,0 +1,12 @@
+{
+  "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/WhisperKit/Sources/WhisperKit/Core/Audio/AudioChunker.swift" : {
+    "abi-baseline-json" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit.abi.json",
+    "const-values" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit-primary.swiftconstvalues",
+    "dependencies" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit-primary.d",
+    "diagnostics" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit-primary.dia",
+    "objc-header" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit-Swift.h",
+    "swiftdoc" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit.swiftdoc",
+    "swiftmodule" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit.swiftmodule",
+    "swiftsourceinfo" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/whisperkit.build/Release/WhisperKit.build/Objects-normal/arm64/WhisperKit.swiftsourceinfo"
+  }
+}

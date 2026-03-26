@@ -3,8 +3,6 @@ import AVFoundation
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setAppIcon()
-
         // Migrate keychain items to avoid password prompts
         KeychainManager.migrateKeysIfNeeded()
 

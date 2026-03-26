@@ -1,0 +1,65 @@
+{
+  "buildCommand" : {
+    "command" : "build",
+    "skipDependencies" : false,
+    "style" : "buildOnly"
+  },
+  "configuredTargets" : [
+    {
+      "guid" : "270b95e403f6e391bee7ea537455e53dcf59dce99ae309d6914bf8f61d82a92b"
+    }
+  ],
+  "containerPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/MySTT.xcodeproj",
+  "continueBuildingAfterErrors" : false,
+  "dependencyScope" : "workspace",
+  "enableIndexBuildArena" : false,
+  "hideShellScriptEnvironment" : false,
+  "parameters" : {
+    "action" : "build",
+    "activeArchitecture" : "arm64",
+    "activeRunDestination" : {
+      "disableOnlyActiveArch" : false,
+      "platform" : "macosx",
+      "sdk" : "macosx26.2",
+      "sdkVariant" : "macos",
+      "supportedArchitectures" : [
+        "arm64e",
+        "arm64",
+        "x86_64"
+      ],
+      "targetArchitecture" : "arm64"
+    },
+    "arenaInfo" : {
+      "buildIntermediatesPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex",
+      "buildProductsPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Products",
+      "derivedDataPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build",
+      "indexDataStoreFolderPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Index.noindex/DataStore",
+      "indexEnableDataStore" : true,
+      "indexPCHPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Index.noindex/PrecompiledHeaders",
+      "pchPath" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/PrecompiledHeaders"
+    },
+    "configurationName" : "Release",
+    "overrides" : {
+      "commandLine" : {
+        "table" : {
+          "ARCHS" : "arm64",
+          "ONLY_ACTIVE_ARCH" : "YES"
+        }
+      },
+      "synthesized" : {
+        "table" : {
+          "ACTION" : "build",
+          "ENABLE_PREVIEWS" : "NO",
+          "ENABLE_XOJIT_PREVIEWS" : "YES",
+          "TOOLCHAINS" : "com.apple.dt.toolchain.Metal.32023.864 $(inherited)"
+        }
+      }
+    }
+  },
+  "schemeCommand" : "launch",
+  "showNonLoggedProgress" : true,
+  "useDryRun" : false,
+  "useImplicitDependencies" : true,
+  "useLegacyBuildLocations" : false,
+  "useParallelTargets" : true
+}

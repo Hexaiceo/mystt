@@ -1,0 +1,61 @@
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable+Bucket.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable+BucketIterator.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable+Constants.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable+CustomStringConvertible.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable+Testing.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable+UnsafeHandle.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_HashTable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/HashTable/_Hashtable+Header.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Codable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+CustomReflectable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Deprecations.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Descriptions.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Elements.SubSequence.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Elements.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Equatable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+ExpressibleByDictionaryLiteral.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Hashable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Initializers.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Invariants.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Partial\ MutableCollection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Partial\ RangeReplaceableCollection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Sendable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Sequence.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary+Values.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedDictionary/OrderedDictionary.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Codable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+CustomReflectable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Descriptions.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Diffing.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Equatable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+ExpressibleByArrayLiteral.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Hashable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Initializers.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Insertions.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Invariants.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ MutableCollection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ RangeReplaceableCollection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ formIntersection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ formSymmetricDifference.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ formUnion.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ intersection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ isDisjoint.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ isEqualSet.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ isStrictSubset.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ isStrictSuperset.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ isSubset.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ isSuperset.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ subtract.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ subtracting.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ symmetricDifference.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra\ union.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Partial\ SetAlgebra+Basics.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+RandomAccessCollection.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+ReserveCapacity.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Sendable.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+SubSequence.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+Testing.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+UnorderedView.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet+UnstableInternals.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/OrderedSet/OrderedSet.swift
+/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-collections/Sources/OrderedCollections/Utilities/_UnsafeBitset.swift

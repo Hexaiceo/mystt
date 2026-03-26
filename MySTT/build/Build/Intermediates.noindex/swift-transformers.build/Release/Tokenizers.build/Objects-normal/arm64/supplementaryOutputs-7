@@ -1,0 +1,12 @@
+{
+  "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/SourcePackages/checkouts/swift-transformers/Sources/Tokenizers/BPETokenizer.swift" : {
+    "abi-baseline-json" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers.abi.json",
+    "const-values" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers-primary.swiftconstvalues",
+    "dependencies" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers-primary.d",
+    "diagnostics" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers-primary.dia",
+    "objc-header" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers-Swift.h",
+    "swiftdoc" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers.swiftdoc",
+    "swiftmodule" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers.swiftmodule",
+    "swiftsourceinfo" : "/Users/igor.3.wolak.external/Downloads/MySTT/MySTT/build/Build/Intermediates.noindex/swift-transformers.build/Release/Tokenizers.build/Objects-normal/arm64/Tokenizers.swiftsourceinfo"
+  }
+}

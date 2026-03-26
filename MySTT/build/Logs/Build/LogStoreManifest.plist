@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>logFormatVersion</key>
+	<integer>12</integer>
+	<key>logs</key>
+	<dict>
+		<key>878C4E1A-7E00-465A-ACFF-7C7993797BC9</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>878C4E1A-7E00-465A-ACFF-7C7993797BC9.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>MySTT project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>MySTT</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Cleaning project MySTT with scheme MySTT and configuration Release</string>
+			<key>timeStartedRecording</key>
+			<real>795881752.51083302</real>
+			<key>timeStoppedRecording</key>
+			<real>795881753.02457702</real>
+			<key>title</key>
+			<string>Cleaning project MySTT with scheme MySTT and configuration Release</string>
+			<key>uniqueIdentifier</key>
+			<string>878C4E1A-7E00-465A-ACFF-7C7993797BC9</string>
+		</dict>
+		<key>AA3E1AD5-4A29-4631-81CF-D340E9D851F0</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>AA3E1AD5-4A29-4631-81CF-D340E9D851F0.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>MySTT project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>MySTT</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Cleaning project MySTT with scheme MySTT and configuration Release</string>
+			<key>timeStartedRecording</key>
+			<real>795881787.15113699</real>
+			<key>timeStoppedRecording</key>
+			<real>795881787.52575099</real>
+			<key>title</key>
+			<string>Cleaning project MySTT with scheme MySTT and configuration Release</string>
+			<key>uniqueIdentifier</key>
+			<string>AA3E1AD5-4A29-4631-81CF-D340E9D851F0</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

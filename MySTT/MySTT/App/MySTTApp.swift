@@ -97,15 +97,12 @@ final class SettingsWindowManager: NSObject, NSWindowDelegate {
 
         settingsWindow = win
 
-        // Must activate BEFORE showing window for menu bar apps
-        NSApp.setActivationPolicy(.regular)
+        // Activate without switching to .regular (which shows a dock icon)
         NSApp.activate(ignoringOtherApps: true)
         win.makeKeyAndOrderFront(nil)
     }
 
     func windowWillClose(_ notification: Notification) {
-        // Return to accessory (menu bar only) mode
-        NSApp.setActivationPolicy(.accessory)
         settingsWindow = nil
     }
 }
