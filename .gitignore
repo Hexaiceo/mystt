@@ -1,12 +1,15 @@
 # Swift Package Manager
 .build/
 Package.resolved
+.swiftpm/
 
 # Xcode build output (includes SourcePackages, compilation caches, app bundles)
 **/build/
 DerivedData/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcresult/
 *.dSYM/
 *.ipa
 *.dmg
