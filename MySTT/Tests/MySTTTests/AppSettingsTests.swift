@@ -16,7 +16,7 @@ final class AppSettingsTests: XCTestCase {
 
     func test_defaultValues_llmProvider() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.llmProvider, .localMLX)
+        XCTAssertEqual(settings.llmProvider, .localLMStudio)
     }
 
     func test_defaultValues_enableLLMCorrection() {
@@ -26,7 +26,7 @@ final class AppSettingsTests: XCTestCase {
 
     func test_defaultValues_enablePunctuationModel() {
         let settings = AppSettings()
-        XCTAssertTrue(settings.enablePunctuationModel)
+        XCTAssertFalse(settings.enablePunctuationModel)
     }
 
     func test_defaultValues_enableDictionary() {
@@ -56,25 +56,24 @@ final class AppSettingsTests: XCTestCase {
 
     func test_defaultValues_whisperModelName() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.whisperModelName, "large-v3-turbo")
+        XCTAssertEqual(settings.whisperModelName, "openai_whisper-large-v3-v20240930_turbo_632MB")
     }
 
-    func test_defaultValues_ollamaURL() {
+    func test_defaultValues_lmStudioURL() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.ollamaURL, "http://localhost:11434")
+        XCTAssertEqual(settings.lmStudioURL, "http://127.0.0.1:1234/v1")
     }
 
     func test_defaultValues_apiKeysEmpty() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.deepgramAPIKey, "")
-        XCTAssertEqual(settings.grokAPIKey, "")
+        XCTAssertEqual(settings.groqSTTAPIKey, "")
         XCTAssertEqual(settings.groqAPIKey, "")
         XCTAssertEqual(settings.openaiAPIKey, "")
     }
 
     func test_defaultValues_hotkeyKeyCode() {
         let settings = AppSettings()
-        XCTAssertEqual(settings.hotkeyKeyCode, 0x3D)
+        XCTAssertEqual(settings.hotkeyKeyCode, 0x3F)
     }
 
     func test_equatable_sameValues() {
@@ -84,7 +83,7 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func test_equatable_differentValues() {
-        var a = AppSettings()
+        let a = AppSettings()
         var b = AppSettings()
         b.autoPaste = false
         XCTAssertNotEqual(a, b)
@@ -92,15 +91,15 @@ final class AppSettingsTests: XCTestCase {
 
     func test_codable_modifiedValues() throws {
         var settings = AppSettings()
-        settings.sttProvider = .deepgram
-        settings.llmProvider = .grok
+        settings.sttProvider = .groqSTT
+        settings.llmProvider = .groq
         settings.enableLLMCorrection = false
         settings.autoPaste = false
 
         let data = try JSONEncoder().encode(settings)
         let decoded = try JSONDecoder().decode(AppSettings.self, from: data)
-        XCTAssertEqual(decoded.sttProvider, .deepgram)
-        XCTAssertEqual(decoded.llmProvider, .grok)
+        XCTAssertEqual(decoded.sttProvider, .groqSTT)
+        XCTAssertEqual(decoded.llmProvider, .groq)
         XCTAssertFalse(decoded.enableLLMCorrection)
         XCTAssertFalse(decoded.autoPaste)
     }
@@ -109,28 +108,25 @@ final class AppSettingsTests: XCTestCase {
 
     func test_llmProvider_isLocal() {
         XCTAssertTrue(LLMProvider.localMLX.isLocal)
-        XCTAssertTrue(LLMProvider.localOllama.isLocal)
-        XCTAssertFalse(LLMProvider.grok.isLocal)
+        XCTAssertTrue(LLMProvider.localLMStudio.isLocal)
         XCTAssertFalse(LLMProvider.groq.isLocal)
         XCTAssertFalse(LLMProvider.openai.isLocal)
     }
 
     func test_llmProvider_requiresAPIKey() {
         XCTAssertFalse(LLMProvider.localMLX.requiresAPIKey)
-        XCTAssertFalse(LLMProvider.localOllama.requiresAPIKey)
-        XCTAssertTrue(LLMProvider.grok.requiresAPIKey)
+        XCTAssertFalse(LLMProvider.localLMStudio.requiresAPIKey)
         XCTAssertTrue(LLMProvider.groq.requiresAPIKey)
         XCTAssertTrue(LLMProvider.openai.requiresAPIKey)
     }
 
     func test_llmProvider_allCases_count() {
-        XCTAssertEqual(LLMProvider.allCases.count, 5)
+        XCTAssertEqual(LLMProvider.allCases.count, 4)
     }
 
     func test_llmProvider_displayName() {
         XCTAssertEqual(LLMProvider.localMLX.displayName, "MLX (Local)")
-        XCTAssertEqual(LLMProvider.localOllama.displayName, "Ollama (Local)")
-        XCTAssertEqual(LLMProvider.grok.displayName, "Grok (xAI)")
+        XCTAssertEqual(LLMProvider.localLMStudio.displayName, "LM Studio (Local)")
         XCTAssertEqual(LLMProvider.groq.displayName, "Groq Cloud")
         XCTAssertEqual(LLMProvider.openai.displayName, "OpenAI")
     }
@@ -143,11 +139,11 @@ final class AppSettingsTests: XCTestCase {
 
     func test_sttProvider_displayName() {
         XCTAssertEqual(STTProvider.whisperKit.displayName, "WhisperKit (Local)")
-        XCTAssertEqual(STTProvider.deepgram.displayName, "Deepgram (Cloud)")
+        XCTAssertEqual(STTProvider.groqSTT.displayName, "Groq API (Cloud)")
     }
 
     func test_sttProvider_isLocal() {
         XCTAssertTrue(STTProvider.whisperKit.isLocal)
-        XCTAssertFalse(STTProvider.deepgram.isLocal)
+        XCTAssertFalse(STTProvider.groqSTT.isLocal)
     }
 }

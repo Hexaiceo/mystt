@@ -1,9 +1,26 @@
 import AppKit
 
+enum AutoPastePermissionIssue: Equatable, Hashable {
+    case accessibility
+    case automation
+    case unknown
+}
+
+struct AppleScriptExecutionResult {
+    let succeeded: Bool
+    let errorMessage: String?
+}
+
 class AutoPaster {
-    private var targetApp: NSRunningApplication?
+    private struct TargetAppSnapshot {
+        let processIdentifier: pid_t
+        let localizedName: String?
+        let bundleIdentifier: String?
+    }
+
+    private var targetApp: TargetAppSnapshot?
     private let logFile: URL
-    private var accessibilityPrompted = false
+    private var promptedIssues = Set<AutoPastePermissionIssue>()
 
     init() {
         let logDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".mystt")
@@ -28,7 +45,14 @@ class AutoPaster {
     }
 
     func captureTargetApp() {
-        targetApp = NSWorkspace.shared.frontmostApplication
+        let app = NSWorkspace.shared.frontmostApplication
+        targetApp = app.map {
+            TargetAppSnapshot(
+                processIdentifier: $0.processIdentifier,
+                localizedName: $0.localizedName,
+                bundleIdentifier: $0.bundleIdentifier
+            )
+        }
         log("Captured target: \(targetApp?.localizedName ?? "nil") pid=\(targetApp?.processIdentifier ?? 0) bundle=\(targetApp?.bundleIdentifier ?? "nil")")
     }
 
@@ -38,50 +62,45 @@ class AutoPaster {
         // 1. Copy text to clipboard
         copyToClipboard(text)
 
-        guard let app = targetApp else {
+        guard let app = resolvedTargetApp() else {
             log("No target app!")
             return
         }
 
         let appName = app.localizedName ?? ""
-        log("Target: \(appName), AXTrusted=\(AXIsProcessTrusted())")
+        let hasAccessibility = PermissionChecker.checkAccessibilityPermission()
+        log("Target: \(appName), AXTrusted=\(hasAccessibility)")
 
-        // 2. Activate target app via NSAppleScript (runs in-process, uses MySTT's Automation permission)
-        if !appName.isEmpty {
-            log("Activating \(appName)...")
-            let ok = runAppleScript("tell application \"\(appName)\" to activate")
-            log("Activate result: \(ok)")
-        }
+        // 2. Bring the original app back to the foreground without Apple Events.
+        log("Activating \(appName.isEmpty ? "target app" : appName) via NSRunningApplication...")
+        let activateOK = app.activate()
+        log("Activate result: \(activateOK)")
 
         // Wait for app to come to front
-        try? await Task.sleep(nanoseconds: 500_000_000)
+        await waitForFrontmostApp(processIdentifier: app.processIdentifier)
         log("Frontmost: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "nil")")
 
-        // 3. Send Cmd+V via NSAppleScript (in-process — directly uses MySTT's Automation permission)
-        log("Sending Cmd+V via NSAppleScript...")
-        let pasteOK = runAppleScript("tell application \"System Events\" to keystroke \"v\" using command down")
-        log("Paste result: \(pasteOK)")
-
-        if pasteOK {
+        // 3. Accessibility paste is the most stable path and survives relaunches without Automation.
+        if hasAccessibility {
+            log("Sending Cmd+V via CGEvent...")
+            simulatePaste()
             log("SUCCESS: pasted \(text.count) chars into \(appName)")
             return
         }
 
-        // 4. Fallback: try CGEvent (requires MySTT to have accessibility)
-        if AXIsProcessTrusted() {
-            log("NSAppleScript failed, trying CGEvent...")
-            simulatePaste()
-            log("CGEvent sent")
-        } else {
-            log("FAILED: AppleScript keystroke failed and no accessibility for CGEvent")
-            log("User needs to grant Automation permission: System Settings → Privacy & Security → Automation → MySTT → System Events")
+        // 4. Fallback to System Events for setups that already rely on Automation.
+        log("Accessibility missing, trying System Events fallback...")
+        let pasteResult = runAppleScript("tell application \"System Events\" to keystroke \"v\" using command down")
+        log("Paste result: \(pasteResult.succeeded)")
 
-            // Prompt user once
-            if !accessibilityPrompted {
-                accessibilityPrompted = true
-                promptForAutomationPermission()
-            }
+        if pasteResult.succeeded {
+            log("SUCCESS: pasted \(text.count) chars into \(appName)")
+            return
         }
+
+        let issue = Self.classifyPermissionIssue(for: pasteResult.errorMessage)
+        log("FAILED: auto-paste could not complete (\(issue))")
+        promptForPermissionIssue(issue)
     }
 
     func copyToClipboard(_ text: String) {
@@ -92,16 +111,16 @@ class AutoPaster {
 
     // MARK: - NSAppleScript (in-process, uses MySTT's TCC permissions directly)
 
-    private func runAppleScript(_ source: String) -> Bool {
+    private func runAppleScript(_ source: String) -> AppleScriptExecutionResult {
         var error: NSDictionary?
         let script = NSAppleScript(source: source)
         script?.executeAndReturnError(&error)
         if let error = error {
             let errorMsg = error[NSAppleScript.errorMessage] as? String ?? "unknown"
             log("AppleScript error: \(errorMsg)")
-            return false
+            return AppleScriptExecutionResult(succeeded: false, errorMessage: errorMsg)
         }
-        return true
+        return AppleScriptExecutionResult(succeeded: true, errorMessage: nil)
     }
 
     // MARK: - CGEvent fallback
@@ -122,6 +141,42 @@ class AutoPaster {
 
     // MARK: - Permission prompt
 
+    private func promptForPermissionIssue(_ issue: AutoPastePermissionIssue) {
+        guard promptedIssues.insert(issue).inserted else { return }
+
+        switch issue {
+        case .accessibility:
+            promptForAccessibilityPermission()
+        case .automation:
+            promptForAutomationPermission()
+        case .unknown:
+            if PermissionChecker.checkAccessibilityPermission() {
+                promptForAutomationPermission()
+            } else {
+                promptForAccessibilityPermission()
+            }
+        }
+    }
+
+    private func promptForAccessibilityPermission() {
+        DispatchQueue.main.async {
+            _ = PermissionChecker.checkAccessibilityPermission(prompt: true)
+
+            let alert = NSAlert()
+            alert.messageText = "Auto-paste requires Accessibility"
+            alert.informativeText = "MySTT needs Accessibility access to send Cmd+V into the app you were dictating into.\n\nGo to: System Settings → Privacy & Security → Accessibility\nand enable MySTT.\n\nYour text is already copied to the clipboard, so you can still paste it manually with Cmd+V."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Open Accessibility Settings")
+            alert.addButton(withTitle: "OK")
+
+            NSApp.activate(ignoringOtherApps: true)
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                PermissionChecker.openAccessibilitySettings()
+            }
+        }
+    }
+
     private func promptForAutomationPermission() {
         DispatchQueue.main.async {
             let alert = NSAlert()
@@ -133,10 +188,49 @@ class AutoPaster {
 
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
-                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
-                    NSWorkspace.shared.open(url)
-                }
+                PermissionChecker.openAutomationSettings()
             }
         }
+    }
+
+    private func resolvedTargetApp() -> NSRunningApplication? {
+        guard let targetApp else { return nil }
+
+        if let app = NSRunningApplication(processIdentifier: targetApp.processIdentifier), !app.isTerminated {
+            return app
+        }
+
+        if let bundleIdentifier = targetApp.bundleIdentifier {
+            return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == bundleIdentifier }
+        }
+
+        return nil
+    }
+
+    private func waitForFrontmostApp(processIdentifier: pid_t) async {
+        for _ in 0..<10 {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == processIdentifier {
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    static func classifyPermissionIssue(for errorMessage: String?) -> AutoPastePermissionIssue {
+        let normalized = (errorMessage ?? "").lowercased()
+
+        if normalized.contains("not allowed to send keystrokes")
+            || normalized.contains("assistive access")
+            || normalized.contains("accessibility") {
+            return .accessibility
+        }
+
+        if normalized.contains("not authorized to send apple events")
+            || normalized.contains("not authorised to send apple events")
+            || normalized.contains("not permitted to send apple events") {
+            return .automation
+        }
+
+        return .unknown
     }
 }

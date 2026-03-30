@@ -57,8 +57,8 @@ class DictionaryEngine {
     private var data: DictionaryData
     private let userDictionaryPath: String
 
-    init() {
-        self.userDictionaryPath = NSHomeDirectory() + "/.mystt/dictionary.json"
+    init(userDictionaryPath: String? = nil) {
+        self.userDictionaryPath = userDictionaryPath ?? (NSHomeDirectory() + "/.mystt/dictionary.json")
         self.data = DictionaryData()
         loadDictionary()
     }

@@ -42,15 +42,18 @@ done
 iconutil -c icns "$ICONSET_TMP" -o "$BUILD_DIR/MySTT.app/Contents/Resources/AppIcon.icns"
 
 # Clean and sign with STABLE identity
+chmod -R u+w "$BUILD_DIR/MySTT.app"
 xattr -cr "$BUILD_DIR/MySTT.app"
-codesign --force --sign "$SIGNING_IDENTITY" \
+codesign --force --deep --sign "$SIGNING_IDENTITY" \
   --entitlements MySTT/MySTT.entitlements \
   --identifier "com.mystt.app" \
-  "$BUILD_DIR/MySTT.app/Contents/MacOS/MySTT"
+  "$BUILD_DIR/MySTT.app"
+
+codesign --verify --deep --strict "$BUILD_DIR/MySTT.app"
 
 echo "=== Installing to $INSTALL_PATH ==="
 rm -rf "$INSTALL_PATH"
-cp -R "$BUILD_DIR/MySTT.app" "$INSTALL_PATH"
+ditto "$BUILD_DIR/MySTT.app" "$INSTALL_PATH"
 
 echo "=== Creating DMG ==="
 hdiutil create -volname "MySTT" -srcfolder "$BUILD_DIR/MySTT.app" -ov -format UDZO "$BUILD_DIR/MySTT.dmg" 2>&1

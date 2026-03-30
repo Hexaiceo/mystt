@@ -17,47 +17,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Request accessibility permission (silent check, prompt only once)
-        let hasAccessibility = AXIsProcessTrusted()
-        if !hasAccessibility {
-            if !UserDefaults.standard.bool(forKey: "accessibilityPrompted") {
-                UserDefaults.standard.set(true, forKey: "accessibilityPrompted")
-                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-                AXIsProcessTrustedWithOptions(options)
-            }
+        Task { @MainActor in
+            promptForAccessibilityIfNeeded()
         }
-
-        // Proactively request Automation permission for System Events
-        requestAutomationPermission()
     }
 
     func applicationWillTerminate(_ notification: Notification) {}
 
-    // MARK: - Automation Permission
+    // MARK: - App Icon
 
-    /// Trigger a harmless System Events call to prompt for Automation permission on first launch.
-    /// Uses NSAppleScript (in-process) so the permission is tied directly to MySTT's bundle ID,
-    /// ensuring it persists across restarts.
-    private func requestAutomationPermission() {
-        // Only do this once
-        guard !UserDefaults.standard.bool(forKey: "automationPermissionRequested") else { return }
-        UserDefaults.standard.set(true, forKey: "automationPermissionRequested")
+    private func promptForAccessibilityIfNeeded() {
+        guard !PermissionChecker.checkAccessibilityPermission() else { return }
 
-        // Run on background queue to avoid blocking app launch
-        DispatchQueue.global(qos: .utility).async {
-            var error: NSDictionary?
-            let script = NSAppleScript(source: "tell application \"System Events\" to return name")
-            script?.executeAndReturnError(&error)
-            if let error = error {
-                let msg = error[NSAppleScript.errorMessage] as? String ?? "unknown"
-                print("[AppDelegate] Automation permission request failed: \(msg)")
-            } else {
-                print("[AppDelegate] Automation permission granted")
-            }
+        UserDefaults.standard.set(false, forKey: "accessibilityPrompted")
+        _ = PermissionChecker.checkAccessibilityPermission(prompt: true)
+
+        let alert = NSAlert()
+        alert.messageText = "Enable Accessibility for Auto-Paste"
+        alert.informativeText = "MySTT needs Accessibility access to paste dictated text into Terminal, Teams, and other apps.\n\nmacOS should show a permission prompt now. If it does not, open System Settings and enable MySTT in Privacy & Security → Accessibility."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Open Accessibility Settings")
+        alert.addButton(withTitle: "OK")
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            PermissionChecker.openAccessibilitySettings()
         }
     }
-
-    // MARK: - App Icon
 
     private func setAppIcon() {
         let execPath = ProcessInfo.processInfo.arguments[0]

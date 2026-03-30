@@ -49,6 +49,7 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <key>LSUIElement</key><true/>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSMicrophoneUsageDescription</key><string>MySTT needs microphone access to transcribe speech.</string>
+    <key>NSAppleEventsUsageDescription</key><string>MySTT may use System Events as a fallback to paste text into other applications.</string>
 </dict>
 </plist>
 PLIST

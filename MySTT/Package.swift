@@ -22,5 +22,12 @@ let package = Package(
                 .process("Assets.xcassets"),
             ]
         ),
+        .testTarget(
+            name: "MySTTTests",
+            dependencies: [
+                "MySTT",
+            ],
+            path: "Tests/MySTTTests"
+        ),
     ]
 )

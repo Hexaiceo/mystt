@@ -14,7 +14,15 @@ final class PipelineIntegrationTests: XCTestCase {
         s.enableLLMCorrection = llm
         s.enablePunctuationModel = punctuation
         s.enableDictionary = dictionary
+        s.llmProvider = .openai
         return s
+    }
+
+    private func makeDictionaryEngine(testName: String = #function) -> DictionaryEngine {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mystt-pipeline-\(UUID().uuidString)-\(testName).json")
+        try? FileManager.default.removeItem(at: path)
+        return DictionaryEngine(userDictionaryPath: path.path)
     }
 
     // MARK: - Test 1: Full pipeline English
@@ -95,7 +103,8 @@ final class PipelineIntegrationTests: XCTestCase {
     // MARK: - Test 5: Dictionary pre-processing replaces known terms
 
     func test_pipeline_withDictionary() async throws {
-        let dict = DictionaryEngine()
+        let dict = makeDictionaryEngine()
+        dict.addTerm(key: "kubernetes", value: "Kubernetes")
 
         let processor = PostProcessor(
             dictionaryEngine: dict,
@@ -117,7 +126,8 @@ final class PipelineIntegrationTests: XCTestCase {
     func test_pipeline_llmReceivesDictionaryTerms() async throws {
         let mockLLM = MockLLMProvider()
         mockLLM.mockResult = "I use Kubernetes and React."
-        let dict = DictionaryEngine()
+        let dict = makeDictionaryEngine()
+        dict.addTerm(key: "kubernetes", value: "Kubernetes")
 
         let processor = PostProcessor(
             dictionaryEngine: dict,
@@ -179,7 +189,8 @@ final class PipelineIntegrationTests: XCTestCase {
         // DictionaryEngine preProcess will replace "kubernetes" -> "Kubernetes" before LLM sees it.
         // LLM then receives the pre-processed text.
         mockLLM.mockResult = "I love Kubernetes!"
-        let dict = DictionaryEngine()
+        let dict = makeDictionaryEngine()
+        dict.addTerm(key: "kubernetes", value: "Kubernetes")
 
         let processor = PostProcessor(
             dictionaryEngine: dict,

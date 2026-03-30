@@ -48,7 +48,7 @@ final class LanguageTests: XCTestCase {
     }
 
     func test_displayName_polish() {
-        XCTAssertEqual(Language.polish.displayName, "Polski")
+        XCTAssertEqual(Language.polish.displayName, "Polish")
     }
 
     func test_displayName_unknown() {

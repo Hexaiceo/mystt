@@ -26,7 +26,7 @@ class MockLLMProvider: LLMProviderProtocol {
     var lastReceivedDictionary: [String: String]?
     var available: Bool = true
 
-    func correctText(_ text: String, language: Language, dictionary: [String: String]) async throws -> String {
+    func correctText(_ text: String, language: Language, dictionary: [String: String], userRules: String) async throws -> String {
         callCount += 1
         lastReceivedText = text
         lastReceivedLanguage = language

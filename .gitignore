@@ -19,6 +19,9 @@ DerivedData/
 # Claude Code
 .claude/
 
+# Codex
+.codex
+
 # IDE
 .vscode/
 .idea/
