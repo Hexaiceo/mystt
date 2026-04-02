@@ -11,7 +11,7 @@ MySTT is a privacy-focused, offline-first speech-to-text application for macOS. 
 - **Fully Offline STT** — Uses [WhisperKit](https://github.com/argmaxinc/WhisperKit) with CoreML for on-device speech recognition. No internet required.
 - **Robust Bilingual STT** — Polish and English are decoded explicitly and scored against each other to avoid short-English mistranscriptions.
 - **LLM Text Correction** — Optional grammar/punctuation correction via local LLM (LM Studio, Bielik-11B) or cloud APIs (Groq, OpenAI).
-- **Transcript-Safe LLM Correction** — The LLM is instructed to normalize dictated text only, never answer it, and unsafe answer-like or translated outputs are rejected.
+- **Transcript-Safe LLM Correction** — The LLM is instructed to normalize dictated text only, never answer it, and unsafe answer-like, translated, or short semantic rewrite outputs are rejected.
 - **4-Stage Post-Processing** — Dictionary pre-processing → punctuation correction → guarded LLM normalization → dictionary post-processing.
 - **Auto-Paste** — Transcribed text is automatically pasted into the active application.
 - **Custom Dictionary** — Add your own terms, abbreviations, and formatting rules.
@@ -123,7 +123,7 @@ All permissions are requested on first launch. If something stops working after 
 │     ├─ optional punctuation model                                     │
 │     ├─ LLM transcript normalization                                   │
 │     │   ├─ quoted transcript prompt                                   │
-│     │   ├─ translation / answer / corruption rejection                │
+│     │   ├─ translation / answer / short-rewrite / corruption rejection│
 │     │   └─ language guardrails                                        │
 │     └─ dictionary post-process / term re-application                  │
 │     ↓                                                                 │
@@ -134,7 +134,7 @@ All permissions are requested on first launch. If something stops working after 
 - **Protocol-driven** — `STTEngineProtocol`, `LLMProviderProtocol` make it easy to swap implementations
 - **Audio isolation** — MySTT microphone selection is independent from the macOS global input device and does not rewrite system sound settings
 - **Language detection** — Heuristics in `PostProcessor` and scoring in `WhisperKitEngine` help short Polish/English utterances choose the correct decode path
-- **Safety guards** — Detects and rejects answer-like LLM behavior, language switching, mistranslations, and corrupted text before paste
+- **Safety guards** — Detects and rejects answer-like LLM behavior, language switching, mistranslations, short semantic rewrites such as Polish `no` → `nie`, and corrupted text before paste
 - **Dictionary safety** — Default user rules are migrated forward and dictionary terms are applied before and after the LLM stage
 
 ## Security & Privacy
@@ -175,6 +175,7 @@ MySTT/
 | Model takes long to load | First launch compiles CoreML models (~2 min). Subsequent launches use cached compilation. |
 | LLM shows "Not available" | Ensure LM Studio is running with a model loaded, or add a cloud API key in Settings. |
 | LLM returns an answer instead of cleaned text | Current builds reject assistant-style responses and fall back to the pre-LLM transcript instead of pasting the answer. |
+| Short Polish words get "translated" by the LLM | Current builds preserve very short utterances unless the change is only casing, punctuation, diacritics, or a minor typo fix, so `no` stays `no`. |
 
 ## License
 

@@ -51,6 +51,8 @@ class PostProcessor: PostProcessorProtocol {
                     // Safety checks: verify LLM didn't corrupt the text
                     if Self.isAnswerLikeOutput(input: textBeforeLLM, output: llmResult, expectedLanguage: expectedLanguage) {
                         print("[PostProcessor] LLM answered instead of transforming — discarding: \(llmResult.prefix(80))")
+                    } else if Self.isUnsafeShortRewrite(input: textBeforeLLM, output: llmResult) {
+                        print("[PostProcessor] LLM rewrote a short utterance semantically — discarding: \(llmResult.prefix(60))")
                     } else if Self.isCorruptedOutput(input: textBeforeLLM, output: llmResult) {
                         print("[PostProcessor] LLM corrupted text — discarding: \(llmResult.prefix(60))")
                         // Keep original text
@@ -115,7 +117,7 @@ class PostProcessor: PostProcessorProtocol {
 
         // Common function words
         let polishFunctionWords: Set<String> = [
-            "jest", "nie", "tak", "jak", "się", "czy", "dla", "ale", "był", "była",
+            "jest", "nie", "no", "tak", "jak", "się", "czy", "dla", "ale", "był", "była",
             "będzie", "może", "już", "też", "aby", "lub", "albo", "oraz", "więc",
             "tylko", "gdzie", "kiedy", "dlaczego", "bardzo", "dobrze", "teraz",
             "tutaj", "dzisiaj", "jutro", "wczoraj", "działa", "mam", "masz",
@@ -193,6 +195,33 @@ class PostProcessor: PostProcessorProtocol {
         if overlapRatio < 0.3 && inputWords.count >= 3 {
             print("[PostProcessor] Word overlap ratio: \(String(format: "%.1f%%", overlapRatio * 100)) — likely translation")
             return true
+        }
+
+        return false
+    }
+
+    /// Reject semantic rewrites for very short utterances while still allowing casing, diacritics,
+    /// punctuation, and minor typo cleanup. Short dictation like Polish "no" should stay literal.
+    static func isUnsafeShortRewrite(input: String, output: String) -> Bool {
+        let inputTokens = rawWordTokens(from: input)
+        guard !inputTokens.isEmpty, inputTokens.count <= 2 else { return false }
+
+        let outputTokens = rawWordTokens(from: output)
+        guard !outputTokens.isEmpty else { return true }
+        guard inputTokens.count == outputTokens.count else { return true }
+
+        for (inputToken, outputToken) in zip(inputTokens, outputTokens) {
+            if inputToken.caseInsensitiveCompare(outputToken) == .orderedSame { continue }
+            if foldedToken(inputToken) == foldedToken(outputToken) { continue }
+
+            // For 1-2 character tokens, only exact/diacritic/case-equivalent rewrites are safe.
+            if min(inputToken.count, outputToken.count) <= 2 {
+                return true
+            }
+
+            if !isMinorSpellingAdjustment(inputToken, outputToken) {
+                return true
+            }
         }
 
         return false
@@ -323,18 +352,75 @@ class PostProcessor: PostProcessorProtocol {
         return Array(tokens.prefix(phrase.count)) == phrase
     }
 
-    private static func normalizedTokens(from text: String) -> [String] {
-        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    private static func rawWordTokens(from text: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: #"[[:alnum:]']+"#, options: []) else {
-            return folded
+            return text
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { !$0.isEmpty }
         }
 
-        let range = NSRange(folded.startIndex..., in: folded)
-        return regex.matches(in: folded, range: range).compactMap { match in
-            guard let range = Range(match.range, in: folded) else { return nil }
-            return String(folded[range]).lowercased()
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, range: range).compactMap { match in
+            guard let range = Range(match.range, in: text) else { return nil }
+            return String(text[range]).lowercased()
         }
+    }
+
+    private static func normalizedTokens(from text: String) -> [String] {
+        rawWordTokens(from: text).map(foldedToken)
+    }
+
+    private static func foldedToken(_ token: String) -> String {
+        token.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    private static func isMinorSpellingAdjustment(_ lhs: String, _ rhs: String) -> Bool {
+        let foldedLHS = foldedToken(lhs)
+        let foldedRHS = foldedToken(rhs)
+        guard abs(foldedLHS.count - foldedRHS.count) <= 1 else { return false }
+
+        if foldedLHS == foldedRHS { return true }
+        if isSingleAdjacentTransposition(foldedLHS, foldedRHS) { return true }
+
+        return levenshteinDistance(foldedLHS, foldedRHS) <= 1
+    }
+
+    private static func isSingleAdjacentTransposition(_ lhs: String, _ rhs: String) -> Bool {
+        guard lhs.count == rhs.count, lhs.count >= 2 else { return false }
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        let mismatches = lhsChars.indices.filter { lhsChars[$0] != rhsChars[$0] }
+        guard mismatches.count == 2, mismatches[1] == mismatches[0] + 1 else { return false }
+
+        let first = mismatches[0]
+        let second = mismatches[1]
+        return lhsChars[first] == rhsChars[second] && lhsChars[second] == rhsChars[first]
+    }
+
+    private static func levenshteinDistance(_ lhs: String, _ rhs: String) -> Int {
+        let lhsChars = Array(lhs)
+        let rhsChars = Array(rhs)
+        if lhsChars.isEmpty { return rhsChars.count }
+        if rhsChars.isEmpty { return lhsChars.count }
+
+        var previous = Array(0...rhsChars.count)
+
+        for (lhsIndex, lhsChar) in lhsChars.enumerated() {
+            var current = Array(repeating: 0, count: rhsChars.count + 1)
+            current[0] = lhsIndex + 1
+
+            for (rhsIndex, rhsChar) in rhsChars.enumerated() {
+                let substitutionCost = lhsChar == rhsChar ? 0 : 1
+                current[rhsIndex + 1] = min(
+                    previous[rhsIndex + 1] + 1,
+                    current[rhsIndex] + 1,
+                    previous[rhsIndex] + substitutionCost
+                )
+            }
+
+            previous = current
+        }
+
+        return previous[rhsChars.count]
     }
 }

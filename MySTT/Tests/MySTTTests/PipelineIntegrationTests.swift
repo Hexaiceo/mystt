@@ -325,4 +325,43 @@ final class PipelineIntegrationTests: XCTestCase {
         XCTAssertEqual(result, "witaj swiecie")
         XCTAssertEqual(mockLLM.callCount, 1)
     }
+
+    // MARK: - Test 16: Preserve short Polish interjection "no"
+
+    func test_pipeline_preservesShortPolishNoInsteadOfAllowingTranslation() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "nie"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("no", language: .polish)
+
+        XCTAssertEqual(result, "no")
+        XCTAssertEqual(mockLLM.callCount, 1)
+        XCTAssertEqual(mockLLM.lastReceivedLanguage, .polish)
+    }
+
+    // MARK: - Test 17: Allow short typo cleanup when meaning is unchanged
+
+    func test_pipeline_allowsShortOrthographicCleanup() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "hello"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("helo", language: .english)
+
+        XCTAssertEqual(result, "hello")
+        XCTAssertEqual(mockLLM.callCount, 1)
+    }
 }

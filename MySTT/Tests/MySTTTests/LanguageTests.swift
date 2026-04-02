@@ -93,6 +93,10 @@ final class LanguageTests: XCTestCase {
         XCTAssertEqual(PostProcessor.detectTextLanguage("Hej Jihed, pewnie."), .polish)
     }
 
+    func test_postProcessor_detectTextLanguage_polishParticleNo_isAmbiguous() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("no"), .unknown)
+    }
+
     func test_whisperPrefersEnglishCandidateForShortEnglishUtterance() {
         let preferred = WhisperKitEngine.preferredForcedLanguage(
             polishText: "Hej Cihat, pewnie.",
