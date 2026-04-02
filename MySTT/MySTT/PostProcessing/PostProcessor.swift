@@ -36,27 +36,29 @@ class PostProcessor: PostProcessorProtocol {
             // Skip Polish-only LLMs (Bielik) for non-Polish text
             let isPolishLLM = llm.providerName.lowercased().contains("bielik") ||
                               (settings.llmProvider == .localLMStudio && settings.lmStudioModelName.lowercased().contains("bielik"))
-            let inputLang = Self.detectTextLanguage(text)
+            let expectedLanguage = Self.resolvedProcessingLanguage(text, hint: language)
 
-            if isPolishLLM && inputLang == .english {
-                print("[PostProcessor] Skipping Bielik for English text (would translate to Polish)")
+            if isPolishLLM && expectedLanguage != .polish {
+                print("[PostProcessor] Skipping Bielik for non-Polish text (would translate to Polish)")
             } else {
                 let t2 = CFAbsoluteTimeGetCurrent()
-                let dictionaryTerms = dictionaryEngine?.getAllTerms() ?? [:]
+                let promptDictionary = dictionaryEngine?.getDictionaryTermsForPrompt() ?? "None"
                 let userRules = dictionaryEngine?.getUserRulesForPrompt() ?? ""
                 let textBeforeLLM = text
                 do {
-                    let llmResult = try await llm.correctText(text, language: language, dictionary: dictionaryTerms, userRules: userRules)
+                    let llmResult = try await llm.correctText(text, language: expectedLanguage, promptDictionary: promptDictionary, userRules: userRules)
 
                     // Safety checks: verify LLM didn't corrupt the text
-                    if Self.isCorruptedOutput(input: textBeforeLLM, output: llmResult) {
+                    if Self.isAnswerLikeOutput(input: textBeforeLLM, output: llmResult, expectedLanguage: expectedLanguage) {
+                        print("[PostProcessor] LLM answered instead of transforming — discarding: \(llmResult.prefix(80))")
+                    } else if Self.isCorruptedOutput(input: textBeforeLLM, output: llmResult) {
                         print("[PostProcessor] LLM corrupted text — discarding: \(llmResult.prefix(60))")
                         // Keep original text
                     } else {
                         let outputLang = Self.detectTextLanguage(llmResult)
-                        if inputLang != .unknown && outputLang != .unknown && inputLang != outputLang {
-                            print("[PostProcessor] LLM CHANGED LANGUAGE (\(inputLang.displayName) → \(outputLang.displayName)) — discarding")
-                        } else if Self.isLikelyTranslation(input: textBeforeLLM, output: llmResult) {
+                        if expectedLanguage != .unknown && outputLang != .unknown && expectedLanguage != outputLang {
+                            print("[PostProcessor] LLM CHANGED LANGUAGE (\(expectedLanguage.displayName) → \(outputLang.displayName)) — discarding")
+                        } else if Self.isLikelyTranslation(input: textBeforeLLM, output: llmResult, expectedLanguage: expectedLanguage) {
                             print("[PostProcessor] LLM likely translated text — discarding")
                         } else {
                             text = llmResult
@@ -82,21 +84,34 @@ class PostProcessor: PostProcessorProtocol {
         return text
     }
 
+    private static func resolvedProcessingLanguage(_ text: String, hint: Language) -> Language {
+        let detected = detectTextLanguage(text)
+        return detected == .unknown ? hint : detected
+    }
+
     // MARK: - Language Detection
 
     /// Detect if text is primarily Polish or English
     static func detectTextLanguage(_ text: String) -> Language {
+        let scores = languageScores(text)
+
+        if scores.polish > scores.english && scores.polish >= 2 { return .polish }
+        if scores.english > scores.polish && scores.english >= 2 { return .english }
+
+        return .unknown
+    }
+
+    static func languageScores(_ text: String) -> (english: Int, polish: Int) {
         let lowered = text.lowercased()
         let words = lowered.components(separatedBy: .whitespacesAndNewlines)
             .map { $0.trimmingCharacters(in: .punctuationCharacters) }
             .filter { !$0.isEmpty }
 
-        guard !words.isEmpty else { return .unknown }
+        guard !words.isEmpty else { return (0, 0) }
 
         // Polish diacritics are a very strong signal
         let polishChars: Set<Character> = ["ą", "ć", "ę", "ł", "ń", "ś", "ź", "ż"]
         let polishCharCount = lowered.filter { polishChars.contains($0) }.count
-        if polishCharCount >= 2 { return .polish }
 
         // Common function words
         let polishFunctionWords: Set<String> = [
@@ -104,7 +119,9 @@ class PostProcessor: PostProcessorProtocol {
             "będzie", "może", "już", "też", "aby", "lub", "albo", "oraz", "więc",
             "tylko", "gdzie", "kiedy", "dlaczego", "bardzo", "dobrze", "teraz",
             "tutaj", "dzisiaj", "jutro", "wczoraj", "działa", "mam", "masz",
-            "proszę", "dziękuję", "dzięki", "sprawdźmy", "możemy", "chcę",
+            "proszę", "dziękuję", "dzięki", "sprawdźmy", "możemy", "chcę", "odpowiedz",
+            "hej", "cześć", "siema", "pewnie", "jasne", "okej",
+            "otwórz", "utwórz", "zapisz", "edytuj", "zmień", "plik", "folder",
             "wklej", "kopiuj", "autokopiuj", "wygląda", "powinno"
         ]
 
@@ -113,10 +130,14 @@ class PostProcessor: PostProcessorProtocol {
             "would", "could", "should", "can", "may", "might", "shall",
             "let's", "lets", "let", "how", "what", "where", "when", "why", "who",
             "this", "that", "these", "those", "with", "from", "they", "them",
+            "in", "on", "to", "for", "of", "into", "at", "by", "as", "if",
             "it's", "don't", "doesn't", "didn't", "won't", "wouldn't", "isn't",
             "check", "works", "hello", "please", "thanks", "thank", "good",
             "just", "also", "but", "and", "or", "not", "yes", "no",
-            "copy", "paste", "auto", "test", "here", "there"
+            "hey", "hi", "sure", "okay", "ok", "yep", "yeah",
+            "copy", "paste", "auto", "test", "here", "there", "answer", "open",
+            "create", "edit", "save", "write", "update", "change", "file", "folder",
+            "html", "markdown", "json", "swift", "code"
         ]
 
         var polishScore = 0
@@ -133,16 +154,22 @@ class PostProcessor: PostProcessorProtocol {
         // English apostrophe contractions boost English
         if lowered.contains("'") { englishScore += 2 }
 
-        if polishScore > englishScore && polishScore >= 2 { return .polish }
-        if englishScore > polishScore && englishScore >= 2 { return .english }
+        // File-like tokens are much more common in English coding dictation.
+        if lowered.range(of: #"\b[a-z0-9_-]+\.(html|md|txt|json|swift|js|ts|tsx|jsx|css|py|java|kt|go|rs)\b"#, options: .regularExpression) != nil {
+            englishScore += 2
+        }
 
-        return .unknown
+        return (englishScore, polishScore)
     }
 
     /// Check if LLM output looks like a translation (very different words but similar length)
-    static func isLikelyTranslation(input: String, output: String) -> Bool {
-        let inputLang = detectTextLanguage(input)
+    static func isLikelyTranslation(input: String, output: String, expectedLanguage: Language = .unknown) -> Bool {
+        let inputLang = resolvedProcessingLanguage(input, hint: expectedLanguage)
         let outputLang = detectTextLanguage(output)
+
+        if expectedLanguage != .unknown && outputLang != .unknown && expectedLanguage != outputLang {
+            return true
+        }
 
         // If we can detect both languages and they differ, it's a translation
         if inputLang != .unknown && outputLang != .unknown && inputLang != outputLang {
@@ -167,6 +194,57 @@ class PostProcessor: PostProcessorProtocol {
             print("[PostProcessor] Word overlap ratio: \(String(format: "%.1f%%", overlapRatio * 100)) — likely translation")
             return true
         }
+
+        return false
+    }
+
+    /// Reject assistant-style responses. The LLM must transform the dictated text, not answer it.
+    static func isAnswerLikeOutput(input: String, output: String, expectedLanguage: Language = .unknown) -> Bool {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        let inputTokens = normalizedTokens(from: input)
+        let outputTokens = normalizedTokens(from: trimmed)
+        guard !outputTokens.isEmpty else { return false }
+
+        let assistantPreambles = assistantPreambles(for: expectedLanguage == .unknown ? detectTextLanguage(input) : expectedLanguage)
+        for phrase in assistantPreambles {
+            if starts(with: phrase, in: outputTokens) && !starts(with: phrase, in: inputTokens) {
+                return true
+            }
+        }
+
+        let lowered = trimmed.lowercased()
+        let normalizedInput = input.lowercased()
+        let labelPatterns = [
+            "corrected text:",
+            "corrected transcript:",
+            "revised text:",
+            "revised transcript:",
+            "response:",
+            "answer:",
+            "poprawiony tekst:",
+            "poprawiona transkrypcja:",
+            "odpowiedz:",
+            "odpowiedź:"
+        ]
+        if labelPatterns.contains(where: { lowered.hasPrefix($0) }) {
+            return true
+        }
+
+        let outputTokenSet = Set(outputTokens)
+        let inputTokenSet = Set(inputTokens)
+        let newTokenCount = outputTokenSet.subtracting(inputTokenSet).count
+        let samePrefixCount = zip(inputTokens, outputTokens).prefix { $0 == $1 }.count
+        let excessiveGrowth = outputTokens.count > inputTokens.count + max(3, inputTokens.count / 3)
+        if excessiveGrowth && newTokenCount > max(2, inputTokens.count / 4) && samePrefixCount < min(2, inputTokens.count) {
+            return true
+        }
+
+        if lowered.contains("let me know") && !normalizedInput.contains("let me know") { return true }
+        if lowered.contains("i can help") && !normalizedInput.contains("i can help") { return true }
+        if lowered.contains("moge pomoc") && !normalizedInput.contains("moge pomoc") { return true }
+        if lowered.contains("mogę pomóc") && !normalizedInput.contains("mogę pomóc") { return true }
 
         return false
     }
@@ -199,5 +277,64 @@ class PostProcessor: PostProcessorProtocol {
         }
 
         return false
+    }
+
+    private static func assistantPreambles(for language: Language) -> [[String]] {
+        let common = [
+            ["corrected", "text"],
+            ["corrected", "transcript"],
+            ["revised", "text"],
+            ["revised", "transcript"]
+        ]
+
+        switch language {
+        case .polish:
+            return common + [
+                ["jasne"],
+                ["pewnie"],
+                ["oczywiscie"],
+                ["oczywiście"],
+                ["oto"],
+                ["moge"],
+                ["mogę"],
+                ["chetnie"],
+                ["chętnie"],
+                ["poprawiony", "tekst"],
+                ["poprawiona", "transkrypcja"]
+            ]
+        case .english, .unknown:
+            return common + [
+                ["sure"],
+                ["certainly"],
+                ["of", "course"],
+                ["absolutely"],
+                ["here", "is"],
+                ["heres"],
+                ["here's"],
+                ["i", "can"],
+                ["i", "will"],
+                ["let", "me"]
+            ]
+        }
+    }
+
+    private static func starts(with phrase: [String], in tokens: [String]) -> Bool {
+        guard phrase.count <= tokens.count else { return false }
+        return Array(tokens.prefix(phrase.count)) == phrase
+    }
+
+    private static func normalizedTokens(from text: String) -> [String] {
+        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        guard let regex = try? NSRegularExpression(pattern: #"[[:alnum:]']+"#, options: []) else {
+            return folded
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { !$0.isEmpty }
+        }
+
+        let range = NSRange(folded.startIndex..., in: folded)
+        return regex.matches(in: folded, range: range).compactMap { match in
+            guard let range = Range(match.range, in: folded) else { return nil }
+            return String(folded[range]).lowercased()
+        }
     }
 }

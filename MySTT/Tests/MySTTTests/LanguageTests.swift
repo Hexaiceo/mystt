@@ -76,4 +76,42 @@ final class LanguageTests: XCTestCase {
         XCTAssertEqual(Language.english.id, "en")
         XCTAssertEqual(Language.polish.id, "pl")
     }
+
+    func test_postProcessor_detectTextLanguage_commandWithFilename_isEnglish() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("answer in q2.html"), .english)
+    }
+
+    func test_whisperLooksLikeEnglish_commandWithFilename() {
+        XCTAssertTrue(WhisperKitEngine.looksLikeEnglish("answer in q2.html"))
+    }
+
+    func test_postProcessor_detectTextLanguage_shortEnglishPhrase() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("Hey Jihed, sure."), .english)
+    }
+
+    func test_postProcessor_detectTextLanguage_shortPolishPhrase() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("Hej Jihed, pewnie."), .polish)
+    }
+
+    func test_whisperPrefersEnglishCandidateForShortEnglishUtterance() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Hej Cihat, pewnie.",
+            englishText: "Hey Jihed, sure.",
+            polishAverageLogProb: -1.1,
+            englishAverageLogProb: -0.2
+        )
+
+        XCTAssertEqual(preferred, .english)
+    }
+
+    func test_whisperPrefersPolishCandidateForShortPolishUtterance() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Hej Jihed, pewnie.",
+            englishText: "Hey Jihed, sure.",
+            polishAverageLogProb: -0.2,
+            englishAverageLogProb: -1.0
+        )
+
+        XCTAssertEqual(preferred, .polish)
+    }
 }

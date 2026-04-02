@@ -9,6 +9,22 @@ final class DictionaryEngineTests: XCTestCase {
         return DictionaryEngine(userDictionaryPath: path.path)
     }
 
+    private func makeLegacyRulesFile(testName: String = #function) throws -> String {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mystt-legacy-rules-\(UUID().uuidString)-\(testName).json")
+        let payload: [String: Any] = [
+            "terms": [:],
+            "abbreviations": [:],
+            "polish_terms": [:],
+            "custom_words": [],
+            "rules": [],
+            "user_rules": DictionaryEngine.DictionaryData.legacyDefaultUserRules
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [])
+        try data.write(to: path)
+        return path.path
+    }
+
     func test_preProcess_caseInsensitive() {
         let engine = makeEngine()
         engine.addTerm(key: "testterm", value: "TestTerm")
@@ -93,5 +109,20 @@ final class DictionaryEngineTests: XCTestCase {
         let input = "completely unique string with no matches xyz123"
         let result = engine.preProcess(input)
         XCTAssertEqual(result, input)
+    }
+
+    func test_defaultUserRules_putLanguageFirst() {
+        let engine = makeEngine()
+
+        XCTAssertEqual(engine.userRules.first, DictionaryEngine.DictionaryData.defaultUserRules.first)
+        XCTAssertTrue(engine.userRules.first?.contains("Do NOT change the language") ?? false)
+    }
+
+    func test_loadDictionary_migratesLegacyDefaultUserRules() throws {
+        let path = try makeLegacyRulesFile()
+
+        let engine = DictionaryEngine(userDictionaryPath: path)
+
+        XCTAssertEqual(engine.userRules, DictionaryEngine.DictionaryData.defaultUserRules)
     }
 }

@@ -226,7 +226,7 @@ class AppState: ObservableObject {
         updateMicrophoneName()
 
         do {
-            try audioEngine.startRecording()
+            try audioEngine.startRecording(deviceID: microphoneManager.selectedMicrophone?.id)
             isRecording = true
             statusMessage = "Listening... (Fn=stop, ESC=cancel)"
             soundPlayer.playStartRecording()
@@ -282,7 +282,7 @@ class AppState: ObservableObject {
 
         // Check if microphone actually captured audio (not silence)
         if !AudioCaptureEngine.hasAudioSignal(buffer) {
-            let micName = AudioCaptureEngine.defaultInputDeviceName()
+            let micName = audioEngine.activeInputDeviceName
             statusMessage = "Mic silent (\(micName)) — check mic or switch device"
             soundPlayer.playError()
             overlay.hide()

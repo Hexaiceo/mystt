@@ -128,6 +128,7 @@ final class PipelineIntegrationTests: XCTestCase {
         mockLLM.mockResult = "I use Kubernetes and React."
         let dict = makeDictionaryEngine()
         dict.addTerm(key: "kubernetes", value: "Kubernetes")
+        dict.addCustomWord("Jihed")
 
         let processor = PostProcessor(
             dictionaryEngine: dict,
@@ -138,11 +139,9 @@ final class PipelineIntegrationTests: XCTestCase {
 
         let _ = try await processor.process("i use kubernetes and react", language: .english)
 
-        XCTAssertNotNil(mockLLM.lastReceivedDictionary)
-        XCTAssertFalse(
-            mockLLM.lastReceivedDictionary?.isEmpty ?? true,
-            "LLM should receive non-empty dictionary terms"
-        )
+        XCTAssertNotNil(mockLLM.lastReceivedPromptDictionary)
+        XCTAssertTrue(mockLLM.lastReceivedPromptDictionary?.contains("kubernetes->Kubernetes") ?? false)
+        XCTAssertTrue(mockLLM.lastReceivedPromptDictionary?.contains("Keep exact spelling: Jihed") ?? false)
     }
 
     // MARK: - Test 7: LLM disabled means no LLM call
@@ -225,5 +224,105 @@ final class PipelineIntegrationTests: XCTestCase {
 
         // Empty string capitalized is still empty, so mockResult fallback applies
         XCTAssertNotNil(result)
+    }
+
+    // MARK: - Test 11: Polish-only models are skipped for English hints even when heuristic is unknown
+
+    func test_pipeline_skipsPolishModelForEnglishHint() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.providerName = "Bielik"
+
+        var settings = makeSettings(llm: true)
+        settings.llmProvider = .localLMStudio
+        settings.lmStudioModelName = "bielik-11b-v3.0-instruct"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: settings
+        )
+
+        let result = try await processor.process("great work", language: .english)
+
+        XCTAssertEqual(result, "great work")
+        XCTAssertEqual(mockLLM.callCount, 0)
+    }
+
+    // MARK: - Test 12: Reject translated output using expected language hint
+
+    func test_pipeline_discardsTranslatedOutputWhenExpectedLanguageIsKnown() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "swietna praca"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("great work", language: .english)
+
+        XCTAssertEqual(result, "great work")
+        XCTAssertEqual(mockLLM.callCount, 1)
+    }
+
+    // MARK: - Test 13: Dictionary replacements are re-applied after LLM output
+
+    func test_pipeline_reappliesDictionaryTermsAfterLLM() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Hey Cihat, sure."
+        let dict = makeDictionaryEngine()
+        dict.addTerm(key: "Cihat", value: "Jihed")
+
+        let processor = PostProcessor(
+            dictionaryEngine: dict,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true, dictionary: true)
+        )
+
+        let result = try await processor.process("hey cihat sure", language: .english)
+
+        XCTAssertEqual(result, "Hey Jihed, sure.")
+    }
+
+    // MARK: - Test 14: Reject assistant-style English answers
+
+    func test_pipeline_discardsAssistantStyleEnglishAnswer() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Sure, here is the corrected text: Hello world."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("hello world", language: .english)
+
+        XCTAssertEqual(result, "hello world")
+        XCTAssertEqual(mockLLM.callCount, 1)
+    }
+
+    // MARK: - Test 15: Reject assistant-style Polish answers
+
+    func test_pipeline_discardsAssistantStylePolishAnswer() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Jasne, oto poprawiony tekst: Witaj świecie."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("witaj swiecie", language: .polish)
+
+        XCTAssertEqual(result, "witaj swiecie")
+        XCTAssertEqual(mockLLM.callCount, 1)
     }
 }

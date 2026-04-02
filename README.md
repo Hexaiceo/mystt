@@ -9,11 +9,13 @@ MySTT is a privacy-focused, offline-first speech-to-text application for macOS. 
 ## Features
 
 - **Fully Offline STT** — Uses [WhisperKit](https://github.com/argmaxinc/WhisperKit) with CoreML for on-device speech recognition. No internet required.
-- **Bilingual** — Automatic Polish/English detection. Speaks Polish? Gets Polish. Speaks English? Gets English.
+- **Robust Bilingual STT** — Polish and English are decoded explicitly and scored against each other to avoid short-English mistranscriptions.
 - **LLM Text Correction** — Optional grammar/punctuation correction via local LLM (LM Studio, Bielik-11B) or cloud APIs (Groq, OpenAI).
-- **4-Stage Post-Processing** — Dictionary pre-processing → punctuation correction → LLM grammar fix → dictionary post-processing.
+- **Transcript-Safe LLM Correction** — The LLM is instructed to normalize dictated text only, never answer it, and unsafe answer-like or translated outputs are rejected.
+- **4-Stage Post-Processing** — Dictionary pre-processing → punctuation correction → guarded LLM normalization → dictionary post-processing.
 - **Auto-Paste** — Transcribed text is automatically pasted into the active application.
 - **Custom Dictionary** — Add your own terms, abbreviations, and formatting rules.
+- **App-Owned Microphone Selection** — MySTT keeps its own preferred mic, favors the built-in MacBook microphone over Continuity/iPhone mics, and binds capture directly to the chosen device.
 - **Hotkey Modes** — Tap-to-speak (press once, press again to stop) or hold-to-speak (push-to-talk).
 - **Menu Bar App** — Lives in your menu bar, always ready.
 
@@ -72,7 +74,9 @@ The `Scripts/build_and_install.sh` script:
 | Provider | Type | Model | Notes |
 |----------|------|-------|-------|
 | **LM Studio** (default) | Local | qwen3-4b-2507 | Runs locally via LM Studio, fully offline |
+| MLX via LM Studio | Local | mlx-community/Qwen2.5-7B-Instruct-4bit | Uses LM Studio's OpenAI-compatible API |
 | Groq | Cloud | llama-3.1-8b-instant | Requires API key |
+| OpenAI | Cloud | gpt-4o-mini | Requires API key |
 
 ### Hotkey Options
 
@@ -98,20 +102,47 @@ All permissions are requested on first launch. If something stops working after 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                    MySTT App                     │
-│                                                  │
-│  Fn Key → AudioCapture → WhisperKit STT          │
-│              ↓                                   │
-│  Dictionary Pre-process → LLM Correction          │
-│              ↓                                   │
-│  Dictionary Post-process → Auto-Paste             │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                               MySTT App                               │
+│                                                                       │
+│  Fn / Globe                                                           │
+│     ↓                                                                 │
+│  AppState + HotkeyManager                                             │
+│     ↓                                                                 │
+│  MicrophoneManager ── prefers built-in mic over Continuity/iPhone     │
+│     ↓                                                                 │
+│  AudioCaptureEngine ── binds AVAudioEngine to selected AudioDeviceID   │
+│     ↓                                                                 │
+│  WhisperKitEngine                                                     │
+│     ├─ force "pl" decode                                              │
+│     ├─ force "en" decode                                              │
+│     └─ score/select better candidate                                  │
+│     ↓                                                                 │
+│  PostProcessor                                                        │
+│     ├─ dictionary pre-process                                         │
+│     ├─ optional punctuation model                                     │
+│     ├─ LLM transcript normalization                                   │
+│     │   ├─ quoted transcript prompt                                   │
+│     │   ├─ translation / answer / corruption rejection                │
+│     │   └─ language guardrails                                        │
+│     └─ dictionary post-process / term re-application                  │
+│     ↓                                                                 │
+│  AutoPaster / Clipboard                                               │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Protocol-driven** — `STTEngineProtocol`, `LLMProviderProtocol` make it easy to swap implementations
-- **Language detection** — Transcribes as Polish first, detects if English, re-transcribes if needed
-- **Safety guards** — Detects and rejects LLM hallucination, language switching, and text corruption
+- **Audio isolation** — MySTT microphone selection is independent from the macOS global input device and does not rewrite system sound settings
+- **Language detection** — Heuristics in `PostProcessor` and scoring in `WhisperKitEngine` help short Polish/English utterances choose the correct decode path
+- **Safety guards** — Detects and rejects answer-like LLM behavior, language switching, mistranslations, and corrupted text before paste
+- **Dictionary safety** — Default user rules are migrated forward and dictionary terms are applied before and after the LLM stage
+
+## Security & Privacy
+
+- **API keys are not stored in the repository** — cloud provider keys are stored in the macOS Data Protection Keychain via `KeychainManager`
+- **No hardcoded secrets were found in tracked source files** during the publish check for this update
+- **Public endpoints in the code are expected configuration** — they are service URLs or localhost defaults, not credentials
+- **Local-first by default** — WhisperKit STT works fully offline, and local LM Studio / MLX flows do not require sending dictated text to a cloud service
 
 ## Project Structure
 
@@ -122,10 +153,10 @@ MySTT/
 │   └── build_and_install.sh   # Build, sign, install, create DMG
 └── MySTT/
     ├── App/                   # AppState, AppDelegate, entry point
-    ├── Audio/                 # Microphone capture (AVAudioEngine)
-    ├── STT/                   # WhisperKit engine, Groq STT
-    ├── LLM/                   # LM Studio, Groq, OpenAI providers
-    ├── PostProcessing/        # 4-stage text correction pipeline
+    ├── Audio/                 # Microphone discovery, prioritization, and device-bound capture
+    ├── STT/                   # WhisperKit dual-candidate decode, Groq STT
+    ├── LLM/                   # LM Studio, MLX, Groq, OpenAI, Ollama providers
+    ├── PostProcessing/        # Dictionary, language heuristics, LLM safety guards
     ├── Paste/                 # Auto-paste via AppleScript
     ├── Hotkey/                # Fn key monitoring (tap/hold modes)
     ├── Models/                # Data models, settings, enums
@@ -138,10 +169,12 @@ MySTT/
 
 | Issue | Solution |
 |-------|----------|
-| "Dziękuję" every time | Your microphone is delivering silence. Check **System Settings → Sound → Input** — switch to a working mic. |
+| "Dziękuję" every time | Your microphone is delivering silence. In MySTT Settings, refresh the microphone list and confirm the active device is a working mic. |
+| My iPhone microphone keeps taking over | Current builds prefer the built-in MacBook mic over Continuity/iPhone microphones. If needed, reselect the built-in mic in MySTT Settings. |
 | Paste not working | Check **System Settings → Privacy → Automation** — enable System Events for MySTT. |
 | Model takes long to load | First launch compiles CoreML models (~2 min). Subsequent launches use cached compilation. |
 | LLM shows "Not available" | Ensure LM Studio is running with a model loaded, or add a cloud API key in Settings. |
+| LLM returns an answer instead of cleaned text | Current builds reject assistant-style responses and fall back to the pre-LLM transcript instead of pasting the answer. |
 
 ## License
 

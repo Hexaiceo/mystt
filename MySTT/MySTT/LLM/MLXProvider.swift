@@ -16,11 +16,11 @@ class MLXProvider: LLMProviderProtocol {
         self.client = OpenAICompatibleClient(baseURL: baseURL, apiKey: "lm-studio", timeout: 30)
     }
 
-    func correctText(_ text: String, language: Language, dictionary: [String: String], userRules: String = "") async throws -> String {
+    func correctText(_ text: String, language: Language, promptDictionary: String, userRules: String = "") async throws -> String {
         let model = try await resolveModel()
-        let terms = LLMPromptBuilder.formatDictionaryTerms(dictionary)
-        let systemPrompt = LLMPromptBuilder.buildSystemPrompt(language: language, dictionaryTerms: terms, userRules: userRules)
-        return try await client.complete(model: model, systemPrompt: systemPrompt, userMessage: text)
+        let systemPrompt = LLMPromptBuilder.buildSystemPrompt(language: language, dictionaryTerms: promptDictionary, userRules: userRules)
+        let userPrompt = LLMPromptBuilder.buildUserPrompt(transcript: text)
+        return try await client.complete(model: model, systemPrompt: systemPrompt, userMessage: userPrompt)
     }
 
     func isAvailable() async -> Bool {

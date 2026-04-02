@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreAudio
 import Combine
 
@@ -9,6 +10,8 @@ class AudioCaptureEngine: ObservableObject {
     private var audioBuffers: [AVAudioPCMBuffer] = []
     private let targetFormat: AVAudioFormat
     private var micPermissionGranted = false
+    private(set) var activeInputDeviceID: AudioDeviceID?
+    private(set) var activeInputDeviceName: String = "Unknown"
 
     init() {
         targetFormat = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
@@ -36,16 +39,27 @@ class AudioCaptureEngine: ObservableObject {
         }
     }
 
-    func startRecording() throws {
+    func startRecording(deviceID: AudioDeviceID? = nil) throws {
         guard !isRecording else { return }
         audioBuffers = []
 
-        // Always create fresh engine to pick up the current system default input device
+        // Always create a fresh engine so a newly selected device can be bound cleanly.
         audioEngine.stop()
         audioEngine = AVAudioEngine()
 
-        // Try to use a working microphone — test default first, fall back to built-in
         let inputNode = audioEngine.inputNode
+        let preferredDeviceID = deviceID ?? Self.defaultInputDeviceID()
+
+        if let preferredDeviceID {
+            try bindInputDevice(preferredDeviceID, on: inputNode)
+            activeInputDeviceID = preferredDeviceID
+        } else {
+            activeInputDeviceID = nil
+        }
+
+        let resolvedDeviceID = activeInputDeviceID ?? Self.defaultInputDeviceID()
+        activeInputDeviceID = resolvedDeviceID
+        activeInputDeviceName = resolvedDeviceID.flatMap(Self.deviceName(for:)) ?? "Unknown"
         let inputFormat = inputNode.outputFormat(forBus: 0)
 
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
@@ -53,7 +67,7 @@ class AudioCaptureEngine: ObservableObject {
                           userInfo: [NSLocalizedDescriptionKey: "No microphone available or invalid format"])
         }
 
-        print("[AudioCapture] Using input: \(inputFormat.sampleRate)Hz \(inputFormat.channelCount)ch")
+        print("[AudioCapture] Using input '\(activeInputDeviceName)': \(inputFormat.sampleRate)Hz \(inputFormat.channelCount)ch")
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self = self else { return }
@@ -102,8 +116,7 @@ class AudioCaptureEngine: ObservableObject {
         return false
     }
 
-    /// Get the name of the current default input device
-    static func defaultInputDeviceName() -> String {
+    static func defaultInputDeviceID() -> AudioDeviceID? {
         var addr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
@@ -111,20 +124,59 @@ class AudioCaptureEngine: ObservableObject {
         )
         var deviceID: AudioDeviceID = 0
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
+        let status = AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID)
+        guard status == noErr, deviceID != 0 else { return nil }
+        return deviceID
+    }
 
-        var nameAddr = AudioObjectPropertyAddress(
-            mSelector: kAudioObjectPropertyName,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var name: CFString = "" as CFString
-        var nameSize = UInt32(MemoryLayout<CFString>.size)
-        AudioObjectGetPropertyData(deviceID, &nameAddr, 0, nil, &nameSize, &name)
-        return name as String
+    static func deviceName(for deviceID: AudioDeviceID) -> String? {
+        stringProperty(selector: kAudioObjectPropertyName, for: deviceID) ??
+        stringProperty(selector: kAudioDevicePropertyDeviceNameCFString, for: deviceID)
     }
 
     // MARK: - Private
+
+    private func bindInputDevice(_ deviceID: AudioDeviceID, on inputNode: AVAudioInputNode) throws {
+        guard let audioUnit = inputNode.audioUnit else {
+            throw NSError(
+                domain: "AudioCaptureEngine",
+                code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "Unable to access the audio input unit"]
+            )
+        }
+
+        var mutableDeviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        guard status == noErr else {
+            throw NSError(
+                domain: "AudioCaptureEngine",
+                code: Int(status),
+                userInfo: [NSLocalizedDescriptionKey: "Unable to select microphone (Core Audio error \(status))"]
+            )
+        }
+    }
+
+    private static func stringProperty(selector: AudioObjectPropertySelector, for deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = withUnsafeMutablePointer(to: &value) { ptr in
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
+        }
+        guard status == noErr, let value else { return nil }
+        return value.takeUnretainedValue() as String
+    }
 
     private func convertBuffer(_ buffer: AVAudioPCMBuffer, from inputFormat: AVAudioFormat, to outputFormat: AVAudioFormat) -> AVAudioPCMBuffer? {
         guard let converter = AVAudioConverter(from: inputFormat, to: outputFormat) else { return nil }

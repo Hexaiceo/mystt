@@ -2,12 +2,62 @@ import AVFoundation
 import CoreAudio
 import Combine
 
-/// Manages microphone selection with auto-switch to newly connected devices
+/// Manages the app's microphone preference independently from the macOS global default.
 class MicrophoneManager: ObservableObject {
     struct Microphone: Identifiable, Equatable {
         let id: AudioDeviceID
         let name: String
         let uid: String
+        let transportType: UInt32
+
+        var isBuiltIn: Bool {
+            transportType == kAudioDeviceTransportTypeBuiltIn ||
+            uid.localizedCaseInsensitiveContains("BuiltIn") ||
+            name.localizedCaseInsensitiveContains("MacBook") ||
+            name.localizedCaseInsensitiveContains("Built-in") ||
+            name.localizedCaseInsensitiveContains("Mikrofon")
+        }
+
+        var isContinuity: Bool {
+            transportType == kAudioDeviceTransportTypeContinuityCaptureWired ||
+            transportType == kAudioDeviceTransportTypeContinuityCaptureWireless ||
+            uid.localizedCaseInsensitiveContains("iPhone") ||
+            uid.localizedCaseInsensitiveContains("Continuity") ||
+            name.localizedCaseInsensitiveContains("iPhone") ||
+            name.localizedCaseInsensitiveContains("Continuity")
+        }
+
+        var isVirtual: Bool {
+            transportType == kAudioDeviceTransportTypeVirtual
+        }
+
+        var isAggregate: Bool {
+            uid.contains("CADefaultDeviceAggregate") ||
+            uid.contains("AggregateDevice") ||
+            name.contains("CADefaultDeviceAggregate") ||
+            name.contains("AggregateDevice")
+        }
+
+        var automaticPriority: Int {
+            if isBuiltIn { return 0 }
+            if !isContinuity && !isVirtual { return 1 }
+            if isContinuity { return 2 }
+            return 3
+        }
+
+    }
+
+    enum SelectionMode {
+        case automatic
+        case manual
+    }
+
+    enum SelectionDecision: Equatable {
+        case keepCurrent(Microphone)
+        case selectPreferred(Microphone)
+        case autoSwitchToNewDevice(Microphone)
+        case selectFallback(Microphone)
+        case clearSelection
     }
 
     @Published var availableMicrophones: [Microphone] = []
@@ -16,6 +66,7 @@ class MicrophoneManager: ObservableObject {
 
     private var listenerBlock: AudioObjectPropertyListenerBlock?
     private var isFirstRefresh = true
+    private var selectionMode: SelectionMode = .automatic
 
     init() {
         refreshDevices()
@@ -30,100 +81,27 @@ class MicrophoneManager: ObservableObject {
 
     func refreshDevices() {
         let oldList = availableMicrophones
+        let oldSelection = selectedMicrophone
         availableMicrophones = Self.listInputDevices()
 
         print("[Mic] Devices: \(availableMicrophones.map { $0.name })")
+        let decision = Self.selectionDecision(
+            oldMicrophones: oldList,
+            newMicrophones: availableMicrophones,
+            currentSelection: oldSelection,
+            selectionMode: selectionMode,
+            isFirstRefresh: isFirstRefresh
+        )
+        isFirstRefresh = false
 
-        if isFirstRefresh {
-            // First launch: read the current system default input device
-            isFirstRefresh = false
-            let systemDefault = getSystemDefaultInputDevice()
-            if let defaultMic = availableMicrophones.first(where: { $0.id == systemDefault }) {
-                selectedMicrophone = defaultMic
-                print("[Mic] Initial: using system default → \(defaultMic.name)")
-            } else {
-                // System default not in list (virtual?), fall back to built-in
-                selectedMicrophone = builtInMicrophone ?? availableMicrophones.first
-                if let sel = selectedMicrophone {
-                    setDefaultInputDevice(sel.id)
-                    print("[Mic] Initial: system default not found, using → \(sel.name)")
-                }
-            }
-            return
-        }
-
-        // Not first refresh: check for newly connected devices
-        let newDevices = availableMicrophones.filter { mic in !oldList.contains(mic) }
-        if let newDevice = newDevices.first {
-            previousMicrophone = selectedMicrophone
-            selectedMicrophone = newDevice
-            setDefaultInputDevice(newDevice.id)
-            print("[Mic] Auto-switched to new device: \(newDevice.name)")
-        }
-
-        // If selected device was removed, revert
-        if let sel = selectedMicrophone, !availableMicrophones.contains(sel) {
-            let fallback: Microphone?
-            if let prev = previousMicrophone, availableMicrophones.contains(prev) {
-                fallback = prev
-                print("[Mic] Reverted to previous: \(prev.name)")
-            } else {
-                fallback = builtInMicrophone ?? availableMicrophones.first
-                print("[Mic] Reverted to default: \(fallback?.name ?? "none")")
-            }
-            selectedMicrophone = fallback
-            if let fb = fallback {
-                setDefaultInputDevice(fb.id)
-            }
-            previousMicrophone = nil
-        }
-    }
-
-    /// Returns the built-in MacBook microphone if available
-    private var builtInMicrophone: Microphone? {
-        availableMicrophones.first { mic in
-            mic.uid.localizedCaseInsensitiveContains("BuiltIn") ||
-            mic.name.localizedCaseInsensitiveContains("MacBook") ||
-            mic.name.localizedCaseInsensitiveContains("Built-in") ||
-            mic.name.localizedCaseInsensitiveContains("Mikrofon")
-        }
+        applySelectionDecision(decision, previousSelection: oldSelection)
     }
 
     func selectMicrophone(_ mic: Microphone) {
         previousMicrophone = selectedMicrophone
         selectedMicrophone = mic
-        setDefaultInputDevice(mic.id)
+        selectionMode = .manual
         print("[Mic] User selected: \(mic.name)")
-    }
-
-    // MARK: - System default input device
-
-    private func getSystemDefaultInputDevice() -> AudioDeviceID {
-        var defaultID: AudioDeviceID = 0
-        var propAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &propAddress, 0, nil, &size, &defaultID)
-        return defaultID
-    }
-
-    private func setDefaultInputDevice(_ deviceID: AudioDeviceID) {
-        var propAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var deviceIDVar = deviceID
-        let status = AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &propAddress, 0, nil,
-            UInt32(MemoryLayout<AudioDeviceID>.size), &deviceIDVar
-        )
-        if status != noErr {
-            print("[Mic] Failed to set default input device (error \(status))")
-        }
     }
 
     // MARK: - CoreAudio device listing
@@ -160,44 +138,152 @@ class MicrophoneManager: ObservableObject {
             let inputChannels = bufferList.reduce(0) { $0 + Int($1.mNumberChannels) }
             guard inputChannels > 0 else { return nil }
 
-            // Get device name
-            var nameAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceNameCFString,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var nameRef: CFString = "" as CFString
-            var nameSize = UInt32(MemoryLayout<CFString>.size)
-            AudioObjectGetPropertyData(deviceID, &nameAddress, 0, nil, &nameSize, &nameRef)
-
-            // Get UID
-            var uidAddress = AudioObjectPropertyAddress(
-                mSelector: kAudioDevicePropertyDeviceUID,
-                mScope: kAudioObjectPropertyScopeGlobal,
-                mElement: kAudioObjectPropertyElementMain
-            )
-            var uidRef: CFString = "" as CFString
-            var uidSize = UInt32(MemoryLayout<CFString>.size)
-            AudioObjectGetPropertyData(deviceID, &uidAddress, 0, nil, &uidSize, &uidRef)
-
-            let name = nameRef as String
-            let uid = uidRef as String
+            guard
+                let name = stringProperty(
+                    selector: kAudioDevicePropertyDeviceNameCFString,
+                    for: deviceID
+                ),
+                let uid = stringProperty(
+                    selector: kAudioDevicePropertyDeviceUID,
+                    for: deviceID
+                ),
+                let transportType = uint32Property(
+                    selector: kAudioDevicePropertyTransportType,
+                    for: deviceID
+                )
+            else {
+                return nil
+            }
 
             // Filter out virtual/aggregate devices
-            let isVirtual = uid.contains("CADefaultDeviceAggregate") ||
-                            uid.contains("AggregateDevice") ||
-                            name.contains("CADefaultDeviceAggregate") ||
-                            name.contains("AggregateDevice")
-            guard !isVirtual else { return nil }
+            let microphone = Microphone(
+                id: deviceID,
+                name: name,
+                uid: uid,
+                transportType: transportType
+            )
+            guard !microphone.isAggregate else { return nil }
 
-            return Microphone(id: deviceID, name: name, uid: uid)
+            return microphone
         }
+        .sorted(by: automaticSort)
+    }
+
+    private static func stringProperty(selector: AudioObjectPropertySelector, for deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = withUnsafeMutablePointer(to: &value) { ptr in
+            AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, ptr)
+        }
+        guard status == noErr, let value else { return nil }
+        return value.takeUnretainedValue() as String
+    }
+
+    private static func uint32Property(selector: AudioObjectPropertySelector, for deviceID: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value)
+        guard status == noErr else { return nil }
+        return value
     }
 
     // MARK: - Monitor device changes
 
+    static func selectionDecision(
+        oldMicrophones: [Microphone],
+        newMicrophones: [Microphone],
+        currentSelection: Microphone?,
+        selectionMode: SelectionMode,
+        isFirstRefresh: Bool
+    ) -> SelectionDecision {
+        let refreshedCurrentSelection = currentSelection.flatMap { current in
+            newMicrophones.first { $0.uid == current.uid }
+        }
+
+        if selectionMode == .manual, let refreshedCurrentSelection {
+            return .keepCurrent(refreshedCurrentSelection)
+        }
+
+        if !isFirstRefresh {
+            let newDevices = newMicrophones.filter { newMic in
+                !oldMicrophones.contains { $0.uid == newMic.uid }
+            }
+            if let newDevice = autoSwitchCandidate(from: newDevices) {
+                return .autoSwitchToNewDevice(newDevice)
+            }
+        }
+
+        if let refreshedCurrentSelection {
+            return .keepCurrent(refreshedCurrentSelection)
+        }
+
+        if let preferred = preferredAutomaticMicrophone(in: newMicrophones) {
+            return isFirstRefresh ? .selectPreferred(preferred) : .selectFallback(preferred)
+        }
+
+        return .clearSelection
+    }
+
+    private func applySelectionDecision(_ decision: SelectionDecision, previousSelection: Microphone?) {
+        switch decision {
+        case .keepCurrent(let microphone):
+            if selectedMicrophone != microphone {
+                selectedMicrophone = microphone
+            }
+            return
+        case .selectPreferred(let microphone):
+            previousMicrophone = previousSelection
+            selectedMicrophone = microphone
+            selectionMode = .automatic
+            print("[Mic] Preferred automatic microphone → \(microphone.name)")
+        case .autoSwitchToNewDevice(let microphone):
+            previousMicrophone = previousSelection
+            selectedMicrophone = microphone
+            selectionMode = .automatic
+            print("[Mic] Auto-switched to newly connected microphone → \(microphone.name)")
+        case .selectFallback(let microphone):
+            previousMicrophone = previousSelection
+            selectedMicrophone = microphone
+            selectionMode = .automatic
+            print("[Mic] Falling back to preferred microphone → \(microphone.name)")
+        case .clearSelection:
+            previousMicrophone = previousSelection
+            selectedMicrophone = nil
+            selectionMode = .automatic
+            print("[Mic] No microphones available")
+        }
+    }
+
+    private static func preferredAutomaticMicrophone(in microphones: [Microphone]) -> Microphone? {
+        microphones.sorted(by: automaticSort).first
+    }
+
+    private static func autoSwitchCandidate(from microphones: [Microphone]) -> Microphone? {
+        microphones
+            .filter { !$0.isContinuity && !$0.isVirtual }
+            .sorted(by: automaticSort)
+            .first
+    }
+
+    private static func automaticSort(lhs: Microphone, rhs: Microphone) -> Bool {
+        if lhs.automaticPriority != rhs.automaticPriority {
+            return lhs.automaticPriority < rhs.automaticPriority
+        }
+        return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    }
+
     private func startMonitoring() {
-        var propAddress = AudioObjectPropertyAddress(
+        var devicesAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
@@ -211,20 +297,20 @@ class MicrophoneManager: ObservableObject {
         self.listenerBlock = block
 
         AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &propAddress,
+            AudioObjectID(kAudioObjectSystemObject), &devicesAddress,
             DispatchQueue.main, block
         )
     }
 
     private func stopMonitoring() {
         guard let block = listenerBlock else { return }
-        var propAddress = AudioObjectPropertyAddress(
+        var devicesAddress = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDevices,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
         AudioObjectRemovePropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject), &propAddress,
+            AudioObjectID(kAudioObjectSystemObject), &devicesAddress,
             DispatchQueue.main, block
         )
     }

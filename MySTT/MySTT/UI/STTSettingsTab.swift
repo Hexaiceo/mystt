@@ -80,7 +80,7 @@ struct STTSettingsTab: View {
                             .font(.caption)
                     }
 
-                    Text("Auto-switches to newly connected microphones. Reverts when disconnected.")
+                    Text("MySTT now keeps its own microphone preference. It favors the built-in MacBook microphone over Continuity/iPhone microphones, but it can still auto-switch when you connect a new non-Continuity microphone. Choosing a device here does not change the macOS system-wide input device.")
                         .font(.caption).foregroundColor(.secondary)
 
                     Button("Refresh") {

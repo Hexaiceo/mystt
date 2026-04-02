@@ -142,7 +142,7 @@ class WhisperKitEngine: STTEngineProtocol {
 
     func transcribe(audioBuffer: AVAudioPCMBuffer) async throws -> STTResult {
         if !isReady { try await prepare() }
-        guard let whisperKit = whisperKit else { throw STTError.notInitialized }
+        guard whisperKit != nil else { throw STTError.notInitialized }
 
         let floats = audioBuffer.toFloatArray()
         guard !floats.isEmpty else { throw STTError.emptyAudio }
@@ -153,37 +153,34 @@ class WhisperKitEngine: STTEngineProtocol {
         print("[WhisperKit] Transcribing \(String(format: "%.1f", audioDuration))s audio...")
 
         do {
-            // Strategy: try Polish first (primary language), then English if text looks wrong.
-            // This avoids unreliable auto-detect that produces Icelandic, Slovak, Russian etc.
-
-            // Pass 1: Transcribe as Polish
+            // Strategy: decode both Polish and English, then choose the better candidate.
+            // This is slower than a single pass, but much more robust for short dictation where
+            // a forced Polish decode can transliterate English speech into Polish words.
             let polishResult = try await transcribeWith(floats: floats, language: "pl")
             let polishText = polishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
-
-            // Check if the text looks like valid Polish/English
-            if Self.isValidPolishOrEnglish(polishText) {
-                // Check if it's actually English — if so, re-transcribe with English for better quality
-                if Self.looksLikeEnglish(polishText) {
-                    print("[WhisperKit] Polish transcription looks English, re-transcribing as English...")
-                    let englishResult = try await transcribeWith(floats: floats, language: "en")
-                    let englishText = englishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if Self.isValidPolishOrEnglish(englishText) {
-                        return buildResult(from: englishResult, elapsed: CFAbsoluteTimeGetCurrent() - start)
-                    }
-                }
-                return buildResult(from: polishResult, elapsed: CFAbsoluteTimeGetCurrent() - start)
-            }
-
-            // Pass 2: Polish didn't produce good text — try English
-            print("[WhisperKit] Polish transcription invalid, trying English...")
             let englishResult = try await transcribeWith(floats: floats, language: "en")
             let englishText = englishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let preferredLanguage = Self.preferredForcedLanguage(
+                polishText: polishText,
+                englishText: englishText,
+                polishAverageLogProb: Self.averageLogProb(polishResult),
+                englishAverageLogProb: Self.averageLogProb(englishResult)
+            )
 
-            if Self.isValidPolishOrEnglish(englishText) {
+            if preferredLanguage == .english && Self.isValidPolishOrEnglish(englishText) {
+                print("[WhisperKit] Choosing English candidate over Polish candidate")
                 return buildResult(from: englishResult, elapsed: CFAbsoluteTimeGetCurrent() - start)
             }
 
-            // Fallback: return Polish result even if imperfect
+            if Self.isValidPolishOrEnglish(polishText) {
+                return buildResult(from: polishResult, elapsed: CFAbsoluteTimeGetCurrent() - start)
+            }
+
+            if Self.isValidPolishOrEnglish(englishText) {
+                print("[WhisperKit] Polish candidate invalid, using English candidate")
+                return buildResult(from: englishResult, elapsed: CFAbsoluteTimeGetCurrent() - start)
+            }
+
             print("[WhisperKit] Neither language produced clean text, using Polish result")
             return buildResult(from: polishResult, elapsed: CFAbsoluteTimeGetCurrent() - start)
 
@@ -236,12 +233,6 @@ class WhisperKitEngine: STTEngineProtocol {
         guard !text.isEmpty else { return false }
 
         // Allowed: Latin letters, Polish diacriticals, digits, common punctuation, whitespace
-        let allowedPolishEnglish = CharacterSet.letters // covers Latin + Polish diacriticals
-            .union(.decimalDigits)
-            .union(.whitespaces)
-            .union(.punctuationCharacters)
-            .union(CharacterSet(charactersIn: "'\u{2019}\u{201C}\u{201D}\u{2013}\u{2014}\u{2026}\u{20AC}$@#%&*+=<>|/~`^"))
-
         // Forbidden characters that indicate wrong language
         let forbiddenChars: Set<Character> = [
             // Icelandic
@@ -276,31 +267,50 @@ class WhisperKitEngine: STTEngineProtocol {
 
     /// Quick heuristic: does the text look like English rather than Polish?
     static func looksLikeEnglish(_ text: String) -> Bool {
-        let words = text.lowercased().components(separatedBy: .whitespacesAndNewlines)
-            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
-            .filter { !$0.isEmpty }
-        guard words.count >= 2 else { return false }
+        PostProcessor.detectTextLanguage(text) == .english
+    }
 
-        // Polish diacriticals → definitely Polish
-        let polishChars: Set<Character> = ["ą", "ć", "ę", "ł", "ń", "ś", "ź", "ż"]
-        if text.contains(where: { polishChars.contains($0) }) { return false }
+    static func preferredForcedLanguage(
+        polishText: String,
+        englishText: String,
+        polishAverageLogProb: Double = 0,
+        englishAverageLogProb: Double = 0
+    ) -> Language {
+        let polishScore = candidateScore(text: polishText, targetLanguage: .polish, averageLogProb: polishAverageLogProb)
+        let englishScore = candidateScore(text: englishText, targetLanguage: .english, averageLogProb: englishAverageLogProb)
+        return englishScore > polishScore ? .english : .polish
+    }
 
-        let englishWords: Set<String> = [
-            "the", "is", "are", "was", "were", "have", "has", "had", "will", "would",
-            "could", "should", "can", "this", "that", "with", "from", "they", "them",
-            "what", "where", "when", "how", "why", "who", "it", "and", "but", "or",
-            "not", "all", "just", "here", "there", "now", "then", "very", "also",
-            "about", "into", "over", "after", "before", "between", "through",
-            "apply", "check", "test", "fix", "make", "let", "get", "set", "run",
-        ]
+    static func candidateScore(text: String, targetLanguage: Language, averageLogProb: Double = 0) -> Double {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return -100 }
 
-        var englishCount = 0
-        for word in words {
-            if englishWords.contains(word) { englishCount += 1 }
+        let detectedLanguage = PostProcessor.detectTextLanguage(text)
+        let languageScores = PostProcessor.languageScores(text)
+        let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
+        var score = averageLogProb * 8.0 + Double(min(words, 12)) * 0.1
+
+        if !isValidPolishOrEnglish(text) { score -= 100 }
+
+        switch targetLanguage {
+        case .english:
+            score += Double(languageScores.english - languageScores.polish) * 1.5
+            if detectedLanguage == .english { score += 4 }
+            if detectedLanguage == .polish { score -= 5 }
+        case .polish:
+            score += Double(languageScores.polish - languageScores.english) * 1.5
+            if detectedLanguage == .polish { score += 4 }
+            if detectedLanguage == .english { score -= 5 }
+        case .unknown:
+            break
         }
 
-        // If >40% words are common English, it's likely English
-        return Double(englishCount) / Double(words.count) > 0.4
+        return score
+    }
+
+    private static func averageLogProb(_ result: TranscriptionResult) -> Double {
+        guard !result.segments.isEmpty else { return -2.0 }
+        let total = result.segments.reduce(0.0) { $0 + Double($1.avgLogprob) }
+        return total / Double(result.segments.count)
     }
 }
 

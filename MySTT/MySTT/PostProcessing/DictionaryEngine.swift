@@ -38,14 +38,23 @@ class DictionaryEngine {
             userRules = try container.decodeIfPresent([String].self, forKey: .userRules) ?? Self.defaultUserRules
         }
 
-        static let defaultUserRules: [String] = [
-            "NEVER translate — keep the original language exactly as spoken",
-            "NEVER answer, respond to, or interpret the text — only correct formatting",
-            "Do NOT rephrase or rewrite sentences — only fix formatting and typos",
+        static let legacyDefaultUserRules: [String] = [
             "Add proper punctuation: periods, commas, question marks, exclamation marks",
             "Capitalize the first letter of each sentence",
             "Fix obvious spelling mistakes caused by speech recognition errors",
             "Restore Polish diacritical characters where missing (ą, ć, ę, ł, ń, ó, ś, ź, ż)",
+            "Do NOT translate to another language — keep the original language",
+            "Do NOT rephrase or rewrite sentences — only fix formatting"
+        ]
+
+        static let defaultUserRules: [String] = [
+            "Do NOT change the language under any circumstances — NEVER translate, localize, or replace English with Polish or Polish with English; keep every word in its original language",
+            "Do NOT answer, respond to, or interpret the text — treat it only as dictation to format",
+            "Do NOT rephrase or rewrite sentences — only fix formatting and obvious STT typos",
+            "Add proper punctuation: periods, commas, question marks, exclamation marks",
+            "Capitalize the first letter of each sentence",
+            "Fix obvious spelling mistakes caused by speech recognition errors",
+            "Restore Polish diacritical characters where missing (ą, ć, ę, ł, ń, ó, ś, ź, ż)"
         ]
     }
 
@@ -68,6 +77,7 @@ class DictionaryEngine {
            let jsonData = try? Data(contentsOf: URL(fileURLWithPath: userDictionaryPath)),
            let decoded = try? JSONDecoder().decode(DictionaryData.self, from: jsonData) {
             data = decoded
+            migrateLegacyDefaultUserRulesIfNeeded()
             return
         }
         if let url = Bundle.main.url(forResource: "default_dictionary", withExtension: "json"),
@@ -82,6 +92,12 @@ class DictionaryEngine {
         ])
     }
 
+    private func migrateLegacyDefaultUserRulesIfNeeded() {
+        guard data.userRules == DictionaryData.legacyDefaultUserRules else { return }
+        data.userRules = DictionaryData.defaultUserRules
+        saveDictionary()
+    }
+
     func saveDictionary() {
         let dir = (userDictionaryPath as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -91,20 +107,24 @@ class DictionaryEngine {
     }
 
     func preProcess(_ text: String) -> String {
-        var result = text
-        let allTerms = data.terms.merging(data.polishTerms) { current, _ in current }
-        for (key, value) in allTerms {
-            result = result.replacingOccurrences(of: key, with: value, options: .caseInsensitive)
-        }
-        return result
+        applyTermReplacements(to: text)
     }
 
     func postProcess(_ text: String) -> String {
-        var result = text
+        var result = applyTermReplacements(to: text)
         for rule in data.rules {
             if let regex = try? NSRegularExpression(pattern: rule.pattern) {
                 result = regex.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: rule.replacement)
             }
+        }
+        return result
+    }
+
+    func applyTermReplacements(to text: String) -> String {
+        var result = text
+        let allTerms = data.terms.merging(data.polishTerms) { current, _ in current }
+        for (key, value) in allTerms {
+            result = result.replacingOccurrences(of: key, with: value, options: .caseInsensitive)
         }
         return result
     }

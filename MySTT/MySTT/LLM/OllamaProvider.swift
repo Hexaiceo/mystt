@@ -13,10 +13,10 @@ class OllamaProvider: LLMProviderProtocol {
         self.model = model; self.baseURL = baseURL
     }
 
-    func correctText(_ text: String, language: Language, dictionary: [String: String], userRules: String = "") async throws -> String {
-        let terms = LLMPromptBuilder.formatDictionaryTerms(dictionary)
-        let systemPrompt = LLMPromptBuilder.buildSystemPrompt(language: language, dictionaryTerms: terms, userRules: userRules)
-        let fullPrompt = "\(systemPrompt)\n\n\(text)"
+    func correctText(_ text: String, language: Language, promptDictionary: String, userRules: String = "") async throws -> String {
+        let systemPrompt = LLMPromptBuilder.buildSystemPrompt(language: language, dictionaryTerms: promptDictionary, userRules: userRules)
+        let userPrompt = LLMPromptBuilder.buildUserPrompt(transcript: text)
+        let fullPrompt = "\(systemPrompt)\n\n\(userPrompt)"
 
         // Dynamic token limit based on input length
         let wordCount = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
