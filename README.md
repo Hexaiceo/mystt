@@ -132,7 +132,7 @@ All permissions are requested on first launch. If something stops working after 
 ```
 
 - **Protocol-driven** — `STTEngineProtocol`, `LLMProviderProtocol` make it easy to swap implementations
-- **Audio isolation** — MySTT microphone selection is independent from the macOS global input device and does not rewrite system sound settings
+- **Audio isolation** — MySTT microphone selection is independent from the macOS global input device, does not rewrite system sound settings, and avoids auto-jumping onto newly attached monitor/dock USB microphones
 - **Language detection** — Heuristics in `PostProcessor` and scoring in `WhisperKitEngine` help short Polish/English utterances choose the correct decode path
 - **Safety guards** — Detects and rejects answer-like LLM behavior, language switching, mistranslations, short semantic rewrites such as Polish `no` → `nie`, and corrupted text before paste
 - **Dictionary safety** — Default user rules are migrated forward and dictionary terms are applied before and after the LLM stage
@@ -170,7 +170,7 @@ MySTT/
 | Issue | Solution |
 |-------|----------|
 | "Dziękuję" every time | Your microphone is delivering silence. In MySTT Settings, refresh the microphone list and confirm the active device is a working mic. |
-| My iPhone microphone keeps taking over | Current builds prefer the built-in MacBook mic over Continuity/iPhone microphones. If needed, reselect the built-in mic in MySTT Settings. |
+| My iPhone microphone keeps taking over | Current builds prefer the built-in MacBook mic over Continuity/iPhone microphones and no longer auto-switch away from the active mic just because a new USB/monitor device appeared. If needed, reselect the built-in mic in MySTT Settings. |
 | Paste not working | Check **System Settings → Privacy → Automation** — enable System Events for MySTT. |
 | Model takes long to load | First launch compiles CoreML models (~2 min). Subsequent launches use cached compilation. |
 | LLM shows "Not available" | Ensure LM Studio is running with a model loaded, or add a cloud API key in Settings. |

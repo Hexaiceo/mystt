@@ -200,7 +200,7 @@ class MicrophoneManager: ObservableObject {
     // MARK: - Monitor device changes
 
     static func selectionDecision(
-        oldMicrophones: [Microphone],
+        oldMicrophones _: [Microphone],
         newMicrophones: [Microphone],
         currentSelection: Microphone?,
         selectionMode: SelectionMode,
@@ -214,16 +214,12 @@ class MicrophoneManager: ObservableObject {
             return .keepCurrent(refreshedCurrentSelection)
         }
 
-        if !isFirstRefresh {
-            let newDevices = newMicrophones.filter { newMic in
-                !oldMicrophones.contains { $0.uid == newMic.uid }
-            }
-            if let newDevice = autoSwitchCandidate(from: newDevices) {
-                return .autoSwitchToNewDevice(newDevice)
-            }
-        }
-
         if let refreshedCurrentSelection {
+            if let preferred = preferredAutomaticMicrophone(in: newMicrophones),
+               preferred.uid != refreshedCurrentSelection.uid,
+               preferred.automaticPriority < refreshedCurrentSelection.automaticPriority {
+                return .selectFallback(preferred)
+            }
             return .keepCurrent(refreshedCurrentSelection)
         }
 
@@ -266,13 +262,6 @@ class MicrophoneManager: ObservableObject {
 
     private static func preferredAutomaticMicrophone(in microphones: [Microphone]) -> Microphone? {
         microphones.sorted(by: automaticSort).first
-    }
-
-    private static func autoSwitchCandidate(from microphones: [Microphone]) -> Microphone? {
-        microphones
-            .filter { !$0.isContinuity && !$0.isVirtual }
-            .sorted(by: automaticSort)
-            .first
     }
 
     private static func automaticSort(lhs: Microphone, rhs: Microphone) -> Bool {

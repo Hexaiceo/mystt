@@ -86,7 +86,7 @@ final class MicrophoneManagerTests: XCTestCase {
         XCTAssertEqual(decision, MicrophoneManager.SelectionDecision.keepCurrent(builtIn))
     }
 
-    func test_selectionDecision_autoSwitchesToNewlyDiscoveredExternalMicrophone() {
+    func test_selectionDecision_keepsBuiltInWhenNewExternalMicrophoneAppears() {
         let builtIn = mic(
             1,
             "MacBook Pro Microphone",
@@ -109,7 +109,32 @@ final class MicrophoneManagerTests: XCTestCase {
             isFirstRefresh: false
         )
 
-        XCTAssertEqual(decision, MicrophoneManager.SelectionDecision.autoSwitchToNewDevice(usb))
+        XCTAssertEqual(decision, MicrophoneManager.SelectionDecision.keepCurrent(builtIn))
+    }
+
+    func test_selectionDecision_keepsBuiltInWhenMonitorMicrophoneAppears() {
+        let builtIn = mic(
+            1,
+            "MacBook Pro Microphone",
+            uid: "BuiltIn-1",
+            transportType: kAudioDeviceTransportTypeBuiltIn
+        )
+        let monitor = mic(
+            2,
+            "LG UltraFine Display Audio",
+            uid: "Monitor-1",
+            transportType: kAudioDeviceTransportTypeUSB
+        )
+
+        let decision = MicrophoneManager.selectionDecision(
+            oldMicrophones: [builtIn],
+            newMicrophones: [builtIn, monitor],
+            currentSelection: builtIn,
+            selectionMode: .automatic,
+            isFirstRefresh: false
+        )
+
+        XCTAssertEqual(decision, MicrophoneManager.SelectionDecision.keepCurrent(builtIn))
     }
 
     func test_selectionDecision_keepsManualSelectionWhenContinuityAppears() {
@@ -152,6 +177,31 @@ final class MicrophoneManagerTests: XCTestCase {
             newMicrophones: [builtIn],
             currentSelection: usb,
             selectionMode: .manual,
+            isFirstRefresh: false
+        )
+
+        XCTAssertEqual(decision, MicrophoneManager.SelectionDecision.selectFallback(builtIn))
+    }
+
+    func test_selectionDecision_automaticContinuitySelectionFallsBackToBuiltInWhenAvailable() {
+        let builtIn = mic(
+            1,
+            "MacBook Pro Microphone",
+            uid: "BuiltIn-1",
+            transportType: kAudioDeviceTransportTypeBuiltIn
+        )
+        let iPhone = mic(
+            2,
+            "iPhone Microphone",
+            uid: "Continuity-1",
+            transportType: kAudioDeviceTransportTypeContinuityCaptureWireless
+        )
+
+        let decision = MicrophoneManager.selectionDecision(
+            oldMicrophones: [iPhone],
+            newMicrophones: [builtIn, iPhone],
+            currentSelection: iPhone,
+            selectionMode: .automatic,
             isFirstRefresh: false
         )
 
