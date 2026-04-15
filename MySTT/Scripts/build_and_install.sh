@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build MySTT, sign with stable identity, install to /Applications, create DMG
-set -e
+set -euo pipefail
 
 SIGNING_IDENTITY="MySTT Developer"
 INSTALL_PATH="/Applications/MySTT.app"
@@ -10,7 +10,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
 echo "=== Building MySTT ==="
-swift build -c release 2>&1 | tail -5
+swift build -c release
 
 BIN_PATH=$(swift build -c release --show-bin-path)
 

@@ -8,6 +8,10 @@ class RecordingOverlayWindow {
     private var animationView: ListeningAnimationView?
     private var label: NSTextField?
     private var currentStatus: Status?
+    private let mainOverlayAnimationSize: CGFloat = 36
+    private let mainOverlayPadding: CGFloat = 6
+    private let mainOverlayLabelHeight: CGFloat = 14
+    private let mainOverlayLabelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
 
     // Small status indicator for loading/not-ready states
     private var statusWindow: NSWindow?
@@ -31,19 +35,29 @@ class RecordingOverlayWindow {
 
         currentStatus = status
 
+        let textWidth = ceil((text as NSString).size(withAttributes: [.font: mainOverlayLabelFont]).width)
+        let winW = max(mainOverlayAnimationSize + mainOverlayPadding * 2, textWidth + 12)
+        let winH = mainOverlayAnimationSize + mainOverlayLabelHeight + mainOverlayPadding * 3
+
         if let win = window, let lbl = label, let anim = animationView {
             lbl.stringValue = text
+            lbl.frame = NSRect(x: 2, y: mainOverlayPadding - 1, width: winW - 4, height: mainOverlayLabelHeight)
+            anim.frame = NSRect(
+                x: (winW - mainOverlayAnimationSize) / 2,
+                y: mainOverlayLabelHeight + mainOverlayPadding * 2,
+                width: mainOverlayAnimationSize,
+                height: mainOverlayAnimationSize
+            )
+            win.contentView?.frame = NSRect(x: 0, y: 0, width: winW, height: winH)
+            win.contentView?.subviews.first?.frame = NSRect(x: 0, y: 0, width: winW, height: winH)
+            win.setContentSize(NSSize(width: winW, height: winH))
+            centerWindow(win, width: winW, height: winH)
             anim.setStatus(status)
             win.orderFront(nil)
             return
         }
 
-        // Create window — compact size
-        let animSize: CGFloat = 36
-        let padding: CGFloat = 6
-        let labelH: CGFloat = 14
-        let winW: CGFloat = animSize + padding * 2
-        let winH: CGFloat = animSize + labelH + padding * 3
+        // Create window
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: winW, height: winH),
             styleMask: [.borderless],
@@ -68,31 +82,32 @@ class RecordingOverlayWindow {
         container.addSubview(bg)
 
         // Animation view
-        let anim = ListeningAnimationView(frame: NSRect(x: padding, y: labelH + padding * 2, width: animSize, height: animSize))
+        let anim = ListeningAnimationView(frame: NSRect(
+            x: (winW - mainOverlayAnimationSize) / 2,
+            y: mainOverlayLabelHeight + mainOverlayPadding * 2,
+            width: mainOverlayAnimationSize,
+            height: mainOverlayAnimationSize
+        ))
         anim.setStatus(status)
         container.addSubview(anim)
         self.animationView = anim
 
         // Label
         let lbl = NSTextField(labelWithString: text)
-        lbl.font = NSFont.systemFont(ofSize: 8, weight: .medium)
+        lbl.font = mainOverlayLabelFont
         lbl.textColor = .white
         lbl.alignment = .center
-        lbl.frame = NSRect(x: 2, y: padding - 1, width: winW - 4, height: labelH)
+        lbl.frame = NSRect(x: 2, y: mainOverlayPadding - 1, width: winW - 4, height: mainOverlayLabelHeight)
         lbl.isEditable = false
         lbl.isBordered = false
         lbl.backgroundColor = .clear
+        lbl.lineBreakMode = .byTruncatingTail
         container.addSubview(lbl)
         self.label = lbl
 
         win.contentView = container
 
-        if let screen = NSScreen.main {
-            win.setFrameOrigin(NSPoint(
-                x: screen.visibleFrame.midX - winW / 2,
-                y: screen.visibleFrame.minY + 40
-            ))
-        }
+        centerWindow(win, width: winW, height: winH)
 
         win.orderFront(nil)
         self.window = win
@@ -229,6 +244,15 @@ class RecordingOverlayWindow {
     private func stopStatusPulse() {
         statusIcon?.layer?.removeAnimation(forKey: "statusPulse")
         statusIcon?.layer?.opacity = 1.0
+    }
+
+    private func centerWindow(_ win: NSWindow, width: CGFloat, height: CGFloat) {
+        if let screen = NSScreen.main {
+            win.setFrameOrigin(NSPoint(
+                x: screen.visibleFrame.midX - width / 2,
+                y: screen.visibleFrame.minY + 40
+            ))
+        }
     }
 
     enum Status {

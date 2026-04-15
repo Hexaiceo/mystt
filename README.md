@@ -13,6 +13,7 @@ MySTT is a privacy-focused, offline-first speech-to-text application for macOS. 
 - **LLM Text Correction** — Optional grammar/punctuation correction via local LLM (LM Studio, Bielik-11B) or cloud APIs (Groq, OpenAI).
 - **Transcript-Safe LLM Correction** — The LLM is instructed to normalize dictated text only, never answer it, and unsafe answer-like, translated, or short semantic rewrite outputs are rejected.
 - **4-Stage Post-Processing** — Dictionary pre-processing → punctuation correction → guarded LLM normalization → dictionary post-processing.
+- **Adaptive Status Overlay** — The bottom recording/processing overlay resizes to fit short live states like `STT` and `LLM` without clipping.
 - **Auto-Paste** — Transcribed text is automatically pasted into the active application.
 - **Custom Dictionary** — Add your own terms, abbreviations, and formatting rules.
 - **App-Owned Microphone Selection** — MySTT keeps its own preferred mic, favors the built-in MacBook microphone over Continuity/iPhone mics, and binds capture directly to the chosen device.
@@ -57,6 +58,7 @@ The `Scripts/build_and_install.sh` script:
 3. Signs with a stable identity (preserves permissions across rebuilds)
 4. Installs to `/Applications/MySTT.app`
 5. Creates `build/MySTT.dmg` for distribution
+6. Fails fast on build errors instead of packaging a stale previously-built binary
 
 > **Note:** For code signing, create a self-signed certificate named "MySTT Developer" in Keychain Access, or modify the `SIGNING_IDENTITY` variable in the script.
 
@@ -176,6 +178,7 @@ MySTT/
 | LLM shows "Not available" | Ensure LM Studio is running with a model loaded, or add a cloud API key in Settings. |
 | LLM returns an answer instead of cleaned text | Current builds reject assistant-style responses and fall back to the pre-LLM transcript instead of pasting the answer. |
 | Short Polish words get "translated" by the LLM | Current builds preserve very short utterances unless the change is only casing, punctuation, diacritics, or a minor typo fix, so `no` stays `no`. |
+| `build_and_install.sh` installs an older app after you moved the repo | Delete `MySTT/.build` and rerun the script. Current builds now fail fast instead of silently reusing an old binary when Swift's module cache points at a previous path. |
 
 ## License
 
