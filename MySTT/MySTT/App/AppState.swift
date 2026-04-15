@@ -333,7 +333,7 @@ class AppState: ObservableObject {
             // Step 2: LLM correction
             try Task.checkCancellation()
             statusMessage = "Correcting text..."
-            overlay.show(status: .processing, detail: "LLM correction (ESC=cancel)")
+            overlay.show(status: .processing, detail: "LLM")
 
             let llmStart = CFAbsoluteTimeGetCurrent()
             do {
