@@ -27,7 +27,17 @@ class PostProcessor: PostProcessorProtocol {
         // Stage 1: Punctuation correction
         if settings.enablePunctuationModel, let punct = punctuationCorrector {
             let t1 = CFAbsoluteTimeGetCurrent()
-            text = (try? await punct.correct(text, language: language)) ?? text
+            if settings.enableDictionary, let dict = dictionaryEngine {
+                let protectionPlan = dict.protectCanonicalTerms(in: text)
+                let punctuated = (try? await punct.correct(protectionPlan.protectedText, language: language)) ?? protectionPlan.protectedText
+                if dict.placeholdersPreserved(in: punctuated, plan: protectionPlan) {
+                    text = dict.restoreProtectedTerms(in: punctuated, using: protectionPlan)
+                } else {
+                    print("[PostProcessor] Punctuation changed protected terms — discarding punctuation output")
+                }
+            } else {
+                text = (try? await punct.correct(text, language: language)) ?? text
+            }
             print("[PostProcessor] Punctuation: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - t1) * 1000))ms")
         }
 
@@ -45,25 +55,32 @@ class PostProcessor: PostProcessorProtocol {
                 let promptDictionary = dictionaryEngine?.getDictionaryTermsForPrompt() ?? "None"
                 let userRules = dictionaryEngine?.getUserRulesForPrompt() ?? ""
                 let textBeforeLLM = text
+                let protectionPlan = dictionaryEngine?.protectCanonicalTerms(in: textBeforeLLM) ?? .passthrough(textBeforeLLM)
+                let llmInput = protectionPlan.protectedText
                 do {
-                    let llmResult = try await llm.correctText(text, language: expectedLanguage, promptDictionary: promptDictionary, userRules: userRules)
+                    let llmResult = try await llm.correctText(llmInput, language: expectedLanguage, promptDictionary: promptDictionary, userRules: userRules)
+                    let restoredResult = dictionaryEngine?.restoreProtectedTerms(in: llmResult, using: protectionPlan) ?? llmResult
 
                     // Safety checks: verify LLM didn't corrupt the text
-                    if Self.isAnswerLikeOutput(input: textBeforeLLM, output: llmResult, expectedLanguage: expectedLanguage) {
+                    if !(dictionaryEngine?.placeholdersPreserved(in: llmResult, plan: protectionPlan) ?? true) {
+                        print("[PostProcessor] LLM changed protected placeholders — discarding")
+                    } else if Self.isAnswerLikeOutput(input: textBeforeLLM, output: restoredResult, expectedLanguage: expectedLanguage) {
                         print("[PostProcessor] LLM answered instead of transforming — discarding: \(llmResult.prefix(80))")
-                    } else if Self.isUnsafeShortRewrite(input: textBeforeLLM, output: llmResult) {
+                    } else if Self.isUnsafeShortRewrite(input: textBeforeLLM, output: restoredResult) {
                         print("[PostProcessor] LLM rewrote a short utterance semantically — discarding: \(llmResult.prefix(60))")
-                    } else if Self.isCorruptedOutput(input: textBeforeLLM, output: llmResult) {
+                    } else if Self.hasUnsafeLexicalDrift(input: textBeforeLLM, output: restoredResult) {
+                        print("[PostProcessor] LLM changed dictated words — discarding: \(llmResult.prefix(60))")
+                    } else if Self.isCorruptedOutput(input: textBeforeLLM, output: restoredResult) {
                         print("[PostProcessor] LLM corrupted text — discarding: \(llmResult.prefix(60))")
                         // Keep original text
                     } else {
-                        let outputLang = Self.detectTextLanguage(llmResult)
+                        let outputLang = Self.detectTextLanguage(restoredResult)
                         if expectedLanguage != .unknown && outputLang != .unknown && expectedLanguage != outputLang {
                             print("[PostProcessor] LLM CHANGED LANGUAGE (\(expectedLanguage.displayName) → \(outputLang.displayName)) — discarding")
-                        } else if Self.isLikelyTranslation(input: textBeforeLLM, output: llmResult, expectedLanguage: expectedLanguage) {
+                        } else if Self.isLikelyTranslation(input: textBeforeLLM, output: restoredResult, expectedLanguage: expectedLanguage) {
                             print("[PostProcessor] LLM likely translated text — discarding")
                         } else {
-                            text = llmResult
+                            text = restoredResult
                         }
                     }
 
@@ -308,6 +325,28 @@ class PostProcessor: PostProcessorProtocol {
         return false
     }
 
+    /// Allow only punctuation, casing, diacritics, and minor character-level cleanup.
+    /// Any token insertion, deletion, or whole-word substitution is treated as unsafe.
+    static func hasUnsafeLexicalDrift(input: String, output: String) -> Bool {
+        let inputTokens = rawWordTokens(from: input)
+        let outputTokens = rawWordTokens(from: output)
+
+        guard !inputTokens.isEmpty || !outputTokens.isEmpty else { return false }
+
+        if inputTokens.count != outputTokens.count {
+            return !isSafeRetokenization(inputTokens: inputTokens, outputTokens: outputTokens)
+        }
+
+        for (inputToken, outputToken) in zip(inputTokens, outputTokens) {
+            if inputToken.caseInsensitiveCompare(outputToken) == .orderedSame { continue }
+            if foldedToken(inputToken) == foldedToken(outputToken) { continue }
+            if isMinorSpellingAdjustment(inputToken, outputToken) { continue }
+            return true
+        }
+
+        return false
+    }
+
     private static func assistantPreambles(for language: Language) -> [[String]] {
         let common = [
             ["corrected", "text"],
@@ -383,6 +422,44 @@ class PostProcessor: PostProcessorProtocol {
         if isSingleAdjacentTransposition(foldedLHS, foldedRHS) { return true }
 
         return levenshteinDistance(foldedLHS, foldedRHS) <= 1
+    }
+
+    private static func isSafeRetokenization(inputTokens: [String], outputTokens: [String]) -> Bool {
+        if inputTokens.count == outputTokens.count + 1 {
+            return canMergeAdjacentTokens(inputTokens, into: outputTokens)
+        }
+        if outputTokens.count == inputTokens.count + 1 {
+            return canMergeAdjacentTokens(outputTokens, into: inputTokens)
+        }
+        return false
+    }
+
+    private static func canMergeAdjacentTokens(_ splitTokens: [String], into mergedTokens: [String]) -> Bool {
+        guard splitTokens.count == mergedTokens.count + 1 else { return false }
+
+        for mergeIndex in 0..<(splitTokens.count - 1) {
+            var candidate: [String] = []
+            candidate.reserveCapacity(mergedTokens.count)
+
+            for index in splitTokens.indices {
+                if index == mergeIndex {
+                    candidate.append(splitTokens[index] + splitTokens[index + 1])
+                } else if index == mergeIndex + 1 {
+                    continue
+                } else {
+                    candidate.append(splitTokens[index])
+                }
+            }
+
+            if candidate.count != mergedTokens.count { continue }
+
+            let allEquivalent = zip(candidate, mergedTokens).allSatisfy { lhs, rhs in
+                foldedToken(lhs) == foldedToken(rhs) || isMinorSpellingAdjustment(lhs, rhs)
+            }
+            if allEquivalent { return true }
+        }
+
+        return false
     }
 
     private static func isSingleAdjacentTransposition(_ lhs: String, _ rhs: String) -> Bool {

@@ -45,6 +45,33 @@ final class DictionaryEngineTests: XCTestCase {
         XCTAssertTrue(result.contains("TypeScript"))
     }
 
+    func test_preProcess_doesNotReplaceInsideLargerWord() {
+        let engine = makeEngine()
+        engine.addTerm(key: "react", value: "React")
+
+        let result = engine.preProcess("preact is different from react")
+
+        XCTAssertEqual(result, "preact is different from React")
+    }
+
+    func test_preProcess_matchesIgnoringDiacritics() {
+        let engine = makeEngine()
+        engine.addTerm(key: "swiecie", value: "świecie")
+
+        let result = engine.preProcess("witaj świecie")
+
+        XCTAssertEqual(result, "witaj świecie")
+    }
+
+    func test_preProcess_matchesMultiWordPhrase() {
+        let engine = makeEngine()
+        engine.addTerm(key: "machine learning", value: "Machine Learning")
+
+        let result = engine.preProcess("i like machine learning projects")
+
+        XCTAssertEqual(result, "i like Machine Learning projects")
+    }
+
     func test_postProcess_doubleSpaces() {
         let engine = DictionaryEngine()
         let result = engine.postProcess("hello  world")
@@ -124,5 +151,30 @@ final class DictionaryEngineTests: XCTestCase {
         let engine = DictionaryEngine(userDictionaryPath: path)
 
         XCTAssertEqual(engine.userRules, DictionaryEngine.DictionaryData.defaultUserRules)
+    }
+
+    func test_protectCanonicalTerms_roundTripsCustomWords() {
+        let engine = makeEngine()
+        engine.addCustomWord("Jihed")
+        engine.addTerm(key: "mac os", value: "macOS")
+
+        let plan = engine.protectCanonicalTerms(in: "Jihed uses macOS daily")
+        let restored = engine.restoreProtectedTerms(in: plan.protectedText, using: plan)
+
+        XCTAssertNotEqual(plan.protectedText, "Jihed uses macOS daily")
+        XCTAssertEqual(restored, "Jihed uses macOS daily")
+        XCTAssertTrue(engine.placeholdersPreserved(in: plan.protectedText, plan: plan))
+    }
+
+    func test_buildSTTPrompt_usesCanonicalSpellings() {
+        let engine = makeEngine()
+        engine.addTerm(key: "mac os", value: "macOS")
+        engine.addCustomWord("Jihed")
+
+        let prompt = engine.buildSTTPrompt()
+
+        XCTAssertTrue(prompt?.contains("macOS") ?? false)
+        XCTAssertTrue(prompt?.contains("Jihed") ?? false)
+        XCTAssertFalse(prompt?.contains("mac os") ?? true)
     }
 }

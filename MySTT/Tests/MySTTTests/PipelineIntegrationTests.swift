@@ -185,9 +185,8 @@ final class PipelineIntegrationTests: XCTestCase {
 
     func test_pipeline_dictionaryThenLLM() async throws {
         let mockLLM = MockLLMProvider()
-        // DictionaryEngine preProcess will replace "kubernetes" -> "Kubernetes" before LLM sees it.
-        // LLM then receives the pre-processed text.
-        mockLLM.mockResult = "I love Kubernetes!"
+        // DictionaryEngine preProcess replaces the term, then the LLM sees a protected placeholder.
+        mockLLM.mockResult = "I love MYSTTTERM0TOKEN!"
         let dict = makeDictionaryEngine()
         dict.addTerm(key: "kubernetes", value: "Kubernetes")
 
@@ -201,10 +200,10 @@ final class PipelineIntegrationTests: XCTestCase {
         let result = try await processor.process("i love kubernetes", language: .english)
 
         XCTAssertEqual(result, "I love Kubernetes!")
-        // Verify LLM received pre-processed text (Kubernetes already capitalized by dictionary)
+        // Verify LLM received protected placeholder rather than the raw canonical token.
         XCTAssertTrue(
-            mockLLM.lastReceivedText?.contains("Kubernetes") ?? false,
-            "LLM should receive dictionary-preprocessed text"
+            mockLLM.lastReceivedText?.contains("MYSTTTERM0TOKEN") ?? false,
+            "LLM should receive protected placeholders for canonical dictionary terms"
         )
     }
 
@@ -272,7 +271,7 @@ final class PipelineIntegrationTests: XCTestCase {
 
     func test_pipeline_reappliesDictionaryTermsAfterLLM() async throws {
         let mockLLM = MockLLMProvider()
-        mockLLM.mockResult = "Hey Cihat, sure."
+        mockLLM.mockResult = "Hey MYSTTTERM0TOKEN, sure."
         let dict = makeDictionaryEngine()
         dict.addTerm(key: "Cihat", value: "Jihed")
 
@@ -362,6 +361,67 @@ final class PipelineIntegrationTests: XCTestCase {
         let result = try await processor.process("helo", language: .english)
 
         XCTAssertEqual(result, "hello")
+        XCTAssertEqual(mockLLM.callCount, 1)
+    }
+
+    // MARK: - Test 18: Reject lexical drift in longer utterances
+
+    func test_pipeline_discardsLongerLexicalRewrite() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Please inspect the file"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("please open the file", language: .english)
+
+        XCTAssertEqual(result, "please open the file")
+        XCTAssertEqual(mockLLM.callCount, 1)
+    }
+
+    // MARK: - Test 19: Protected custom words survive LLM processing
+
+    func test_pipeline_protectsCustomWordsDuringLLMCorrection() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "MYSTTTERM0TOKEN works here."
+        let dict = makeDictionaryEngine()
+        dict.addCustomWord("Jihed")
+
+        let processor = PostProcessor(
+            dictionaryEngine: dict,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true, dictionary: true)
+        )
+
+        let result = try await processor.process("jihed works here", language: .english)
+
+        XCTAssertEqual(result, "Jihed works here.")
+        XCTAssertTrue(mockLLM.lastReceivedText?.contains("MYSTTTERM0TOKEN") ?? false)
+    }
+
+    // MARK: - Test 20: Missing placeholder invalidates LLM output
+
+    func test_pipeline_discardsLLMOutputWhenProtectedPlaceholderIsDropped() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Jihad works here."
+        let dict = makeDictionaryEngine()
+        dict.addCustomWord("Jihed")
+
+        let processor = PostProcessor(
+            dictionaryEngine: dict,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true, dictionary: true)
+        )
+
+        let result = try await processor.process("jihed works here", language: .english)
+
+        XCTAssertEqual(result, "jihed works here")
         XCTAssertEqual(mockLLM.callCount, 1)
     }
 }

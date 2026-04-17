@@ -30,7 +30,7 @@ class GroqSTTEngine: STTEngineProtocol {
         isReady = true
     }
 
-    func transcribe(audioBuffer: AVAudioPCMBuffer) async throws -> STTResult {
+    func transcribe(audioBuffer: AVAudioPCMBuffer, context: TranscriptionContext = .empty) async throws -> STTResult {
         guard isReady else { throw STTError.notInitialized }
 
         let audioData = audioBuffer.toWAVData()
@@ -55,6 +55,11 @@ class GroqSTTEngine: STTEngineProtocol {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"response_format\"\r\n\r\n".data(using: .utf8)!)
         body.append("verbose_json\r\n".data(using: .utf8)!)
+        if let prompt = context.prompt?.trimmingCharacters(in: .whitespacesAndNewlines), !prompt.isEmpty {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(prompt)\r\n".data(using: .utf8)!)
+        }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 

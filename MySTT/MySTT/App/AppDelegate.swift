@@ -63,7 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     return
                 }
             }
-            for bundle in [Bundle.module, Bundle.main] {
+            for bundle in iconCandidateBundles() {
                 let path = "\(bundle.bundlePath)/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png"
                 if let image = NSImage(contentsOfFile: path) {
                     NSApp.applicationIconImage = image
@@ -71,5 +71,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    private func iconCandidateBundles() -> [Bundle] {
+        #if SWIFT_PACKAGE
+        return [Bundle.module, Bundle.main]
+        #else
+        return [Bundle.main]
+        #endif
     }
 }

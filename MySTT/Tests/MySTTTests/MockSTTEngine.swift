@@ -7,13 +7,15 @@ class MockSTTEngine: STTEngineProtocol {
     var shouldThrow: Error?
     var transcribeCallCount = 0
     var prepareCallCount = 0
+    var lastReceivedContext: TranscriptionContext?
 
     func prepare() async throws {
         prepareCallCount += 1
     }
 
-    func transcribe(audioBuffer: AVAudioPCMBuffer) async throws -> STTResult {
+    func transcribe(audioBuffer: AVAudioPCMBuffer, context: TranscriptionContext) async throws -> STTResult {
         transcribeCallCount += 1
+        lastReceivedContext = context
         if let error = shouldThrow { throw error }
         return mockResult
     }

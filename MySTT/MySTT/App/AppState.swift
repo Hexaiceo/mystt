@@ -26,6 +26,7 @@ class AppState: ObservableObject {
     private var audioEngine: AudioCaptureEngine
     private var sttEngine: (any STTEngineProtocol)?
     private var postProcessor: PostProcessor
+    private var dictionaryEngine: DictionaryEngine
     private var autoPaster: AutoPaster
     private var hotkeyManager: HotkeyManager
     private var soundPlayer: SoundPlayer
@@ -43,6 +44,7 @@ class AppState: ObservableObject {
         self.hotkeyManager = HotkeyManager(keyCode: settings.hotkeyKeyCode)
 
         let dictionaryEngine = DictionaryEngine()
+        self.dictionaryEngine = dictionaryEngine
         let llmProvider = Self.createLLMProvider(settings: settings)
         self.postProcessor = PostProcessor(
             dictionaryEngine: dictionaryEngine,
@@ -309,7 +311,10 @@ class AppState: ObservableObject {
             overlay.show(status: .processing, detail: "STT: \(String(format: "%.1f", audioDuration))s audio")
 
             let sttStart = CFAbsoluteTimeGetCurrent()
-            let sttResult = try await sttEngine.transcribe(audioBuffer: buffer)
+            let transcriptionContext = settings.enableDictionary
+                ? TranscriptionContext(prompt: dictionaryEngine.buildSTTPrompt())
+                : .empty
+            let sttResult = try await sttEngine.transcribe(audioBuffer: buffer, context: transcriptionContext)
             let sttTime = CFAbsoluteTimeGetCurrent() - sttStart
 
             try Task.checkCancellation()
@@ -424,8 +429,9 @@ class AppState: ObservableObject {
         soundPlayer.setEnabled(settings.playSound)
         hotkeyManager.updateKeyCode(settings.hotkeyKeyCode)
         let llmProvider = Self.createLLMProvider(settings: settings)
+        dictionaryEngine = DictionaryEngine()
         postProcessor = PostProcessor(
-            dictionaryEngine: DictionaryEngine(), punctuationCorrector: nil,
+            dictionaryEngine: dictionaryEngine, punctuationCorrector: nil,
             llmProvider: llmProvider, settings: settings
         )
         Task { await downloadSTTModel(); await checkLLMStatus() }
