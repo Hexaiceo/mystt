@@ -441,6 +441,16 @@ class AppState: ObservableObject {
         activeMicrophoneName = microphoneManager.selectedMicrophone?.name ?? "No microphone"
     }
 
+    func refreshMicrophones() {
+        microphoneManager.refreshDevices()
+        updateMicrophoneName()
+    }
+
+    func selectMicrophone(_ microphone: MicrophoneManager.Microphone) {
+        microphoneManager.selectMicrophone(microphone)
+        updateMicrophoneName()
+    }
+
     func cleanup() {
         hotkeyManager.stop()
         processingTask?.cancel()

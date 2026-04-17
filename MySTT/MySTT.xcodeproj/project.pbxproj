@@ -26,6 +26,7 @@
 		72FC8219CBBCCF7D188A398F /* Errors.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEFDCA3A75136F78382C0546 /* Errors.swift */; };
 		761E5234C9343ED75D4537D6 /* GroqProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4D28513614F84FC0B8FC614 /* GroqProvider.swift */; };
 		792ADF42E812D62F34A95D5F /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A3FB46A7037B9230F64D3F6 /* AppState.swift */; };
+		7A689085B15513C0813B26AC /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B09B351038343C42B389792 /* SettingsNavigation.swift */; };
 		7B47B0DA5B7C5BB25B19FBC5 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C7F305087B25792E8A97558 /* OnboardingView.swift */; };
 		8B96B4E96D4DD2AA657B1CD5 /* STTSettingsTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62D87A49D49CEF1C2FC7665F /* STTSettingsTab.swift */; };
 		8F71B565898C399D35FE4237 /* MySTTApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE133CA09372858E7936FBA4 /* MySTTApp.swift */; };
@@ -62,6 +63,7 @@
 		03A0BAC163B01FFE2BC57CB9 /* LMStudioProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LMStudioProvider.swift; sourceTree = "<group>"; };
 		089A31230B212411E237BD28 /* OllamaProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaProvider.swift; sourceTree = "<group>"; };
 		09ACF758D5B6CC718F43FA33 /* LLMSettingsTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMSettingsTab.swift; sourceTree = "<group>"; };
+		0B09B351038343C42B389792 /* SettingsNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsNavigation.swift; sourceTree = "<group>"; };
 		0D577444737D5C472114E75C /* LLMProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LLMProvider.swift; sourceTree = "<group>"; };
 		10FF5696227FF62FCDFBA4D3 /* KeyCodes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCodes.swift; sourceTree = "<group>"; };
 		149C12BBB3E90E74AB58943C /* PostProcessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostProcessor.swift; sourceTree = "<group>"; };
@@ -171,6 +173,7 @@
 				FEFDCA3A75136F78382C0546 /* Errors.swift */,
 				0383D3367C61E049658E1B8D /* Language.swift */,
 				0D577444737D5C472114E75C /* LLMProvider.swift */,
+				0B09B351038343C42B389792 /* SettingsNavigation.swift */,
 				62F3E2456AF51E8BBC838854 /* STTProvider.swift */,
 				9464B1B1257116EC8313F0D7 /* STTResult.swift */,
 				CB2577DB48B4BCF23C046182 /* TranscriptionContext.swift */,
@@ -395,6 +398,7 @@
 				1AF62C4D6E5284FA96E8276F /* STTProvider.swift in Sources */,
 				FC4AFF62104F6A11C3295236 /* STTResult.swift in Sources */,
 				8B96B4E96D4DD2AA657B1CD5 /* STTSettingsTab.swift in Sources */,
+				7A689085B15513C0813B26AC /* SettingsNavigation.swift in Sources */,
 				DF2E4515D4D099BBDAAADFBE /* SettingsView.swift in Sources */,
 				D9BEC83F1D6DA4ABD51C12F0 /* SoundPlayer.swift in Sources */,
 				E5E009B45BC844FFB9A4ECEE /* TranscriptionContext.swift in Sources */,
