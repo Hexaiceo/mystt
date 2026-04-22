@@ -47,9 +47,12 @@ class PostProcessor: PostProcessorProtocol {
             let isPolishLLM = llm.providerName.lowercased().contains("bielik") ||
                               (settings.llmProvider == .localLMStudio && settings.lmStudioModelName.lowercased().contains("bielik"))
             let expectedLanguage = Self.resolvedProcessingLanguage(text, hint: language)
+            let llmDecision = Self.llmDecision(for: text)
 
             if isPolishLLM && expectedLanguage != .polish {
                 print("[PostProcessor] Skipping Bielik for non-Polish text (would translate to Polish)")
+            } else if llmDecision == .skip {
+                print("[PostProcessor] Skipping LLM — deterministic fast path")
             } else {
                 let t2 = CFAbsoluteTimeGetCurrent()
                 let promptDictionary = dictionaryEngine?.getDictionaryTermsForPrompt() ?? "None"
@@ -101,6 +104,23 @@ class PostProcessor: PostProcessorProtocol {
 
         print("[PostProcessor] Total: \(String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - startTime) * 1000))ms")
         return text
+    }
+
+    enum LLMDecision: Equatable {
+        case run
+        case skip
+    }
+
+    static func llmDecision(for text: String) -> LLMDecision {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return .skip }
+        guard trimmed.rangeOfCharacter(from: .letters) != nil else { return .skip }
+
+        let words = trimmed.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        if looksLikeCommandOrCode(trimmed) { return .skip }
+        if words.count == 2 { return .skip }
+
+        return .run
     }
 
     private static func resolvedProcessingLanguage(_ text: String, hint: Language) -> Language {
@@ -180,6 +200,25 @@ class PostProcessor: PostProcessorProtocol {
 
         return (englishScore, polishScore)
     }
+
+    private static func looksLikeCommandOrCode(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+
+        if lowered.range(of: #"[/\\]|https?://|[a-z0-9_.-]+@[a-z0-9.-]+\.[a-z]{2,}|`|->|=>|\b[a-z0-9_-]+\.(html|md|txt|json|swift|js|ts|tsx|jsx|css|py|java|kt|go|rs)\b"#, options: .regularExpression) != nil {
+            return true
+        }
+
+        let commandPrefixes = [
+            "git ", "npm ", "pnpm ", "yarn ", "brew ", "swift ", "xcodebuild ",
+            "cd ", "ls ", "pwd", "mkdir ", "rm ", "mv ", "cp ", "touch "
+        ]
+        if commandPrefixes.contains(where: { lowered.hasPrefix($0) }) {
+            return true
+        }
+
+        return false
+    }
+
 
     /// Check if LLM output looks like a translation (very different words but similar length)
     static func isLikelyTranslation(input: String, output: String, expectedLanguage: Language = .unknown) -> Bool {

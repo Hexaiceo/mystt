@@ -25,4 +25,44 @@ final class AutoPasterTests: XCTestCase {
 
         XCTAssertEqual(issue, .unknown)
     }
+
+    func test_selectTargetApp_prefersFrontmostExternalApp() {
+        let frontmost = TargetAppSnapshot(
+            processIdentifier: 101,
+            localizedName: "Arc",
+            bundleIdentifier: "company.thebrowser.Browser"
+        )
+        let previous = TargetAppSnapshot(
+            processIdentifier: 202,
+            localizedName: "Codex",
+            bundleIdentifier: "com.openai.codex"
+        )
+
+        let selected = AutoPaster.selectTargetApp(frontmostApp: frontmost, lastExternalApp: previous)
+
+        XCTAssertEqual(selected, frontmost)
+    }
+
+    func test_selectTargetApp_fallsBackToPreviousExternalAppWhenFrontmostMissing() {
+        let previous = TargetAppSnapshot(
+            processIdentifier: 202,
+            localizedName: "Codex",
+            bundleIdentifier: "com.openai.codex"
+        )
+
+        let selected = AutoPaster.selectTargetApp(frontmostApp: nil, lastExternalApp: previous)
+
+        XCTAssertEqual(selected, previous)
+    }
+
+    func test_isSelf_detectsOwnBundleIdentifier() {
+        let snapshot = TargetAppSnapshot(
+            processIdentifier: 303,
+            localizedName: "MySTT",
+            bundleIdentifier: "com.mystt.app"
+        )
+
+        XCTAssertTrue(AutoPaster.isSelf(snapshot, selfBundleIdentifier: "com.mystt.app"))
+        XCTAssertFalse(AutoPaster.isSelf(snapshot, selfBundleIdentifier: "com.other.app"))
+    }
 }

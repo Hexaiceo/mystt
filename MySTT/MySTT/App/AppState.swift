@@ -32,6 +32,7 @@ class AppState: ObservableObject {
     private var soundPlayer: SoundPlayer
     private var settings: AppSettings
     private let overlay = RecordingOverlayWindow()
+    private let dictationJournal = DictationJournal()
 
     // Task handle for cancellation
     private var processingTask: Task<Void, Never>?
@@ -62,6 +63,7 @@ class AppState: ObservableObject {
         }
         Task { await downloadSTTModel() }
         Task { await checkLLMStatus() }
+        Task { await recoverPendingDictationIfNeeded() }
 
         // Get active microphone name and subscribe to changes
         updateMicrophoneName()
@@ -274,21 +276,21 @@ class AppState: ObservableObject {
         }
 
         let audioDuration = Double(buffer.frameLength) / 16000.0
+        let signalAnalysis = AudioCaptureEngine.analyzeSignal(buffer)
 
-        // If audio is too short (< 1s), treat as accidental press - cancel silently
-        if audioDuration < 1.0 {
+        if Self.shouldTreatAsAccidentalPress(duration: audioDuration, signalAnalysis: signalAnalysis) {
             statusMessage = "Ready - press Fn to record"
             overlay.hide()
             return
         }
 
         // Check if microphone actually captured audio (not silence)
-        if !AudioCaptureEngine.hasAudioSignal(buffer) {
+        if !signalAnalysis.hasAnySignal {
             let micName = audioEngine.activeInputDeviceName
             statusMessage = "Mic silent (\(micName)) — check mic or switch device"
             soundPlayer.playError()
             overlay.hide()
-            print("[Pipeline] WARNING: Microphone '\(micName)' delivered \(String(format: "%.1f", audioDuration))s of silence")
+            print("[Pipeline] WARNING: Microphone '\(micName)' delivered \(String(format: "%.1f", audioDuration))s of silence (peak=\(signalAnalysis.peakAmplitude), rms=\(signalAnalysis.rmsAmplitude), nonSilent=\(String(format: "%.2f%%", signalAnalysis.nonSilentFrameRatio * 100)))")
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 4_000_000_000)
                 if statusMessage.starts(with: "Mic silent") { statusMessage = "Ready - press Fn to record" }
@@ -319,9 +321,10 @@ class AppState: ObservableObject {
 
             try Task.checkCancellation()
 
-            guard !sttResult.isEmpty else {
+            guard Self.shouldAcceptTranscription(sttResult, signalAnalysis: signalAnalysis) else {
                 statusMessage = "No speech detected"
                 overlay.hide()
+                print("[Pipeline] Rejecting unusable transcript: text='\(sttResult.text.prefix(80))' confidence=\(sttResult.confidence) peak=\(signalAnalysis.peakAmplitude) rms=\(signalAnalysis.rmsAmplitude)")
                 return
             }
 
@@ -354,29 +357,49 @@ class AppState: ObservableObject {
             try Task.checkCancellation()
 
             lastTranscription = finalText
+            let dictationRecordID = await storeDictationRecord(
+                rawText: sttResult.text,
+                finalText: finalText,
+                language: detectedLanguage
+            )
             let totalTime = CFAbsoluteTimeGetCurrent() - pipelineStart
+            var shouldReportSuccess = true
 
             if settings.autoPaste {
                 // Hide overlay BEFORE pasting so it doesn't steal focus
                 overlay.hide()
-                // paste() also copies to clipboard
-                await autoPaster.paste(finalText)
+                let pasteResult = await autoPaster.paste(finalText)
+                await finalizeDictationRecord(id: dictationRecordID, with: pasteResult)
+                let handled = handlePasteResult(pasteResult, totalTime: totalTime)
+                shouldReportSuccess = !handled
+                if shouldReportSuccess {
+                    soundPlayer.playSuccess()
+                }
             } else {
                 // Even without auto-paste, always copy to clipboard
                 autoPaster.copyToClipboard(finalText)
+                await finalizeDictationRecord(
+                    id: dictationRecordID,
+                    with: .inserted(method: .clipboardOnly, verified: true)
+                )
                 overlay.show(status: .done, detail: "\(String(format: "%.1f", totalTime))s")
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     overlay.hide()
                 }
+                soundPlayer.playSuccess()
             }
 
-            statusMessage = "Done! (\(String(format: "%.1f", totalTime))s)"
-            soundPlayer.playSuccess()
-
+            if shouldReportSuccess {
+                statusMessage = "Done! (\(String(format: "%.1f", totalTime))s)"
+            }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
-                if statusMessage.starts(with: "Done!") { statusMessage = "Ready - press Fn to record" }
+                if statusMessage.starts(with: "Done!")
+                    || statusMessage.starts(with: "Text copied")
+                    || statusMessage.starts(with: "Recovered undelivered") {
+                    statusMessage = "Ready - press Fn to record"
+                }
             }
 
         } catch is CancellationError {
@@ -393,6 +416,43 @@ class AppState: ObservableObject {
             overlay.hide()
             print("[Pipeline] Error: \(error)")
         }
+    }
+
+    static func shouldTreatAsAccidentalPress(
+        duration: Double,
+        signalAnalysis: AudioCaptureEngine.SignalAnalysis
+    ) -> Bool {
+        if duration < 0.20 { return true }
+        if duration < 0.55 && !signalAnalysis.hasAnySignal { return true }
+        return false
+    }
+
+    static func shouldAcceptTranscription(
+        _ result: STTResult,
+        signalAnalysis: AudioCaptureEngine.SignalAnalysis
+    ) -> Bool {
+        guard !result.isEmpty else { return false }
+        guard signalAnalysis.hasAnySignal else { return false }
+
+        let words = result.text
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty }
+
+        if !signalAnalysis.hasSpeechLikeSignal {
+            if words.count <= 2 { return false }
+            if result.confidence < -0.5 { return false }
+        }
+
+        if words.count <= 3 && result.confidence < -1.1 {
+            return false
+        }
+
+        if words.count >= 4 && result.confidence < -1.8 {
+            return false
+        }
+
+        return true
     }
 
     // MARK: - Cancel (ESC key)
@@ -456,5 +516,80 @@ class AppState: ObservableObject {
         processingTask?.cancel()
         overlay.hide()
         if isRecording { _ = audioEngine.stopRecording() }
+    }
+
+    private func storeDictationRecord(
+        rawText: String,
+        finalText: String,
+        language: Language
+    ) async -> UUID? {
+        do {
+            let record = try await dictationJournal.createRecord(
+                rawText: rawText,
+                finalText: finalText,
+                language: language,
+                targetApp: autoPaster.currentTargetAppSnapshot()
+            )
+            return record.id
+        } catch {
+            print("[AppState] Failed to persist dictation record: \(error)")
+            return nil
+        }
+    }
+
+    private func finalizeDictationRecord(id: UUID?, with result: PasteDeliveryResult) async {
+        guard let id else { return }
+        do {
+            _ = try await dictationJournal.markDelivery(recordID: id, result: result)
+        } catch {
+            print("[AppState] Failed to finalize dictation record: \(error)")
+        }
+    }
+
+    @discardableResult
+    private func handlePasteResult(_ result: PasteDeliveryResult, totalTime: Double) -> Bool {
+        switch result.outcome {
+        case .inserted where result.wasVerified:
+            return false
+        case .inserted:
+            statusMessage = "Text copied — paste sent but could not be verified"
+            overlay.hide()
+            soundPlayer.playError()
+            return true
+        case .clipboardOnly, .failed:
+            statusMessage = "Text copied — target field lost focus"
+            overlay.hide()
+            soundPlayer.playError()
+            presentDeliveryRecoveryAlert(message: result.failureReason ?? "Text is safely copied to the clipboard.")
+            return true
+        }
+    }
+
+    private func recoverPendingDictationIfNeeded() async {
+        do {
+            guard let record = try await dictationJournal.mostRecentRecoverableRecord() else { return }
+            autoPaster.copyToClipboard(record.finalText)
+            _ = try await dictationJournal.markRecovered(
+                recordID: record.id,
+                note: "Recovered undelivered dictation to clipboard on launch"
+            )
+            statusMessage = "Recovered undelivered dictation to clipboard"
+            presentDeliveryRecoveryAlert(
+                message: "Recovered undelivered text from \(record.createdAt.formatted(date: .abbreviated, time: .shortened)). It is copied to the clipboard."
+            )
+        } catch {
+            print("[AppState] Failed to recover pending dictation: \(error)")
+        }
+    }
+
+    private func presentDeliveryRecoveryAlert(message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Dictation preserved"
+        alert.informativeText = "\(message)\n\nThe latest text is already on the clipboard, so you can paste it manually."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 }

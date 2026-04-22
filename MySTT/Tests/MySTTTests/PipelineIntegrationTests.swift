@@ -1,4 +1,5 @@
 import XCTest
+import AVFoundation
 @testable import MySTT
 
 final class PipelineIntegrationTests: XCTestCase {
@@ -23,6 +24,21 @@ final class PipelineIntegrationTests: XCTestCase {
             .appendingPathComponent("mystt-pipeline-\(UUID().uuidString)-\(testName).json")
         try? FileManager.default.removeItem(at: path)
         return DictionaryEngine(userDictionaryPath: path.path)
+    }
+
+    private func makeAudioBuffer(samples: [Float], sampleRate: Double = 16000) -> AVAudioPCMBuffer {
+        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
+        let buffer = AVAudioPCMBuffer(
+            pcmFormat: format,
+            frameCapacity: AVAudioFrameCount(samples.count)
+        )!
+        buffer.frameLength = AVAudioFrameCount(samples.count)
+        if let channel = buffer.floatChannelData?[0] {
+            for (index, sample) in samples.enumerated() {
+                channel[index] = sample
+            }
+        }
+        return buffer
     }
 
     // MARK: - Test 1: Full pipeline English
@@ -82,7 +98,7 @@ final class PipelineIntegrationTests: XCTestCase {
         let result = try await processor.process("hello world", language: .english)
 
         XCTAssertEqual(result, "hello world", "Original text should be preserved on LLM failure")
-        XCTAssertEqual(mockLLM.callCount, 1, "LLM should have been called exactly once")
+        XCTAssertEqual(mockLLM.callCount, 0, "Short two-word utterances should skip the LLM fast path")
     }
 
     // MARK: - Test 4: No post-processing at all
@@ -264,7 +280,7 @@ final class PipelineIntegrationTests: XCTestCase {
         let result = try await processor.process("great work", language: .english)
 
         XCTAssertEqual(result, "great work")
-        XCTAssertEqual(mockLLM.callCount, 1)
+        XCTAssertEqual(mockLLM.callCount, 0)
     }
 
     // MARK: - Test 13: Dictionary replacements are re-applied after LLM output
@@ -303,7 +319,7 @@ final class PipelineIntegrationTests: XCTestCase {
         let result = try await processor.process("hello world", language: .english)
 
         XCTAssertEqual(result, "hello world")
-        XCTAssertEqual(mockLLM.callCount, 1)
+        XCTAssertEqual(mockLLM.callCount, 0)
     }
 
     // MARK: - Test 15: Reject assistant-style Polish answers
@@ -322,7 +338,7 @@ final class PipelineIntegrationTests: XCTestCase {
         let result = try await processor.process("witaj swiecie", language: .polish)
 
         XCTAssertEqual(result, "witaj swiecie")
-        XCTAssertEqual(mockLLM.callCount, 1)
+        XCTAssertEqual(mockLLM.callCount, 0)
     }
 
     // MARK: - Test 16: Preserve short Polish interjection "no"
@@ -423,5 +439,104 @@ final class PipelineIntegrationTests: XCTestCase {
 
         XCTAssertEqual(result, "jihed works here")
         XCTAssertEqual(mockLLM.callCount, 1)
+    }
+
+    func test_pipeline_skipsLLMForShortUtteranceFastPath() async throws {
+        let mockLLM = MockLLMProvider()
+        let settings = makeSettings(llm: true, dictionary: false)
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: settings
+        )
+
+        let result = try await processor.process("hello world", language: .english)
+
+        XCTAssertEqual(result, "hello world")
+        XCTAssertEqual(mockLLM.callCount, 0)
+    }
+
+    func test_pipeline_skipsLLMForCommandLikeText() async throws {
+        let mockLLM = MockLLMProvider()
+        let settings = makeSettings(llm: true, dictionary: false)
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: settings
+        )
+
+        let result = try await processor.process("git status", language: .english)
+
+        XCTAssertEqual(result, "git status")
+        XCTAssertEqual(mockLLM.callCount, 0)
+    }
+
+    func test_audioAnalysis_detectsSilence() {
+        let buffer = makeAudioBuffer(samples: Array(repeating: 0, count: 1600))
+
+        let analysis = AudioCaptureEngine.analyzeSignal(buffer)
+
+        XCTAssertFalse(analysis.hasAnySignal)
+        XCTAssertFalse(analysis.hasSpeechLikeSignal)
+    }
+
+    func test_audioAnalysis_detectsSpeechLikeSignal() {
+        let samples = (0..<1600).map { index in
+            index % 40 < 20 ? Float(0.01) : Float(-0.01)
+        }
+        let buffer = makeAudioBuffer(samples: samples)
+
+        let analysis = AudioCaptureEngine.analyzeSignal(buffer)
+
+        XCTAssertTrue(analysis.hasAnySignal)
+        XCTAssertTrue(analysis.hasSpeechLikeSignal)
+    }
+
+    @MainActor
+    func test_shortSpeechIsNotDiscardedAsAccidentalPress() {
+        let buffer = makeAudioBuffer(samples: Array(repeating: 0.01, count: 4000))
+        let analysis = AudioCaptureEngine.analyzeSignal(buffer)
+
+        XCTAssertFalse(AppState.shouldTreatAsAccidentalPress(duration: 0.25, signalAnalysis: analysis))
+    }
+
+    @MainActor
+    func test_silentHallucinatedTranscriptIsRejected() {
+        let silence = AudioCaptureEngine.SignalAnalysis(
+            peakAmplitude: 0,
+            rmsAmplitude: 0,
+            nonSilentFrameRatio: 0,
+            speechFrameRatio: 0,
+            frameCount: 24000
+        )
+        let result = STTResult(
+            text: "Dziękuję.",
+            language: .polish,
+            confidence: -0.26,
+            segments: []
+        )
+
+        XCTAssertFalse(AppState.shouldAcceptTranscription(result, signalAnalysis: silence))
+    }
+
+    @MainActor
+    func test_clearShortTranscriptWithSignalIsAccepted() {
+        let signal = AudioCaptureEngine.SignalAnalysis(
+            peakAmplitude: 0.01,
+            rmsAmplitude: 0.005,
+            nonSilentFrameRatio: 0.4,
+            speechFrameRatio: 0.25,
+            frameCount: 24000
+        )
+        let result = STTResult(
+            text: "great work",
+            language: .english,
+            confidence: -0.4,
+            segments: []
+        )
+
+        XCTAssertTrue(AppState.shouldAcceptTranscription(result, signalAnalysis: signal))
     }
 }

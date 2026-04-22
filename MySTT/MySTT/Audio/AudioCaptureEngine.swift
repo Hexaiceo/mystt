@@ -4,6 +4,22 @@ import CoreAudio
 import Combine
 
 class AudioCaptureEngine: ObservableObject {
+    struct SignalAnalysis: Equatable {
+        let peakAmplitude: Float
+        let rmsAmplitude: Float
+        let nonSilentFrameRatio: Float
+        let speechFrameRatio: Float
+        let frameCount: Int
+
+        var hasAnySignal: Bool {
+            peakAmplitude >= 0.0001 || rmsAmplitude >= 0.00003 || nonSilentFrameRatio >= 0.003
+        }
+
+        var hasSpeechLikeSignal: Bool {
+            peakAmplitude >= 0.0015 || rmsAmplitude >= 0.00025 || speechFrameRatio >= 0.01
+        }
+    }
+
     @Published var isRecording = false
 
     private var audioEngine = AVAudioEngine()
@@ -108,12 +124,55 @@ class AudioCaptureEngine: ObservableObject {
 
     /// Check if an audio buffer contains actual audio signal (not silence)
     static func hasAudioSignal(_ buffer: AVAudioPCMBuffer, threshold: Float = 0.0001) -> Bool {
-        guard let data = buffer.floatChannelData?[0] else { return false }
-        let count = Int(buffer.frameLength)
-        for i in 0..<count {
-            if abs(data[i]) > threshold { return true }
+        analyzeSignal(buffer, silenceThreshold: threshold).hasAnySignal
+    }
+
+    static func analyzeSignal(
+        _ buffer: AVAudioPCMBuffer,
+        silenceThreshold: Float = 0.0001,
+        speechThreshold: Float = 0.0015
+    ) -> SignalAnalysis {
+        guard let data = buffer.floatChannelData?[0] else {
+            return SignalAnalysis(
+                peakAmplitude: 0,
+                rmsAmplitude: 0,
+                nonSilentFrameRatio: 0,
+                speechFrameRatio: 0,
+                frameCount: 0
+            )
         }
-        return false
+        let count = Int(buffer.frameLength)
+        guard count > 0 else {
+            return SignalAnalysis(
+                peakAmplitude: 0,
+                rmsAmplitude: 0,
+                nonSilentFrameRatio: 0,
+                speechFrameRatio: 0,
+                frameCount: 0
+            )
+        }
+
+        var peakAmplitude: Float = 0
+        var squaredSum: Float = 0
+        var nonSilentFrames = 0
+        var speechFrames = 0
+
+        for i in 0..<count {
+            let amplitude = abs(data[i])
+            peakAmplitude = max(peakAmplitude, amplitude)
+            squaredSum += amplitude * amplitude
+            if amplitude > silenceThreshold { nonSilentFrames += 1 }
+            if amplitude > speechThreshold { speechFrames += 1 }
+        }
+
+        let rmsAmplitude = sqrt(squaredSum / Float(count))
+        return SignalAnalysis(
+            peakAmplitude: peakAmplitude,
+            rmsAmplitude: rmsAmplitude,
+            nonSilentFrameRatio: Float(nonSilentFrames) / Float(count),
+            speechFrameRatio: Float(speechFrames) / Float(count),
+            frameCount: count
+        )
     }
 
     static func defaultInputDeviceID() -> AudioDeviceID? {

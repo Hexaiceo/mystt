@@ -160,11 +160,17 @@ class WhisperKitEngine: STTEngineProtocol {
             let polishText = polishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let englishResult = try await transcribeWith(floats: floats, language: "en", prompt: context.prompt)
             let englishText = englishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let polishQuality = Self.segmentQuality(polishResult)
+            let englishQuality = Self.segmentQuality(englishResult)
             let preferredLanguage = Self.preferredForcedLanguage(
                 polishText: polishText,
                 englishText: englishText,
                 polishAverageLogProb: Self.averageLogProb(polishResult),
-                englishAverageLogProb: Self.averageLogProb(englishResult)
+                englishAverageLogProb: Self.averageLogProb(englishResult),
+                polishAverageNoSpeechProb: polishQuality.averageNoSpeechProb,
+                englishAverageNoSpeechProb: englishQuality.averageNoSpeechProb,
+                polishAverageCompressionRatio: polishQuality.averageCompressionRatio,
+                englishAverageCompressionRatio: englishQuality.averageCompressionRatio
             )
 
             if preferredLanguage == .english && Self.isValidPolishOrEnglish(englishText) {
@@ -281,14 +287,36 @@ class WhisperKitEngine: STTEngineProtocol {
         polishText: String,
         englishText: String,
         polishAverageLogProb: Double = 0,
-        englishAverageLogProb: Double = 0
+        englishAverageLogProb: Double = 0,
+        polishAverageNoSpeechProb: Double = 0,
+        englishAverageNoSpeechProb: Double = 0,
+        polishAverageCompressionRatio: Double = 1,
+        englishAverageCompressionRatio: Double = 1
     ) -> Language {
-        let polishScore = candidateScore(text: polishText, targetLanguage: .polish, averageLogProb: polishAverageLogProb)
-        let englishScore = candidateScore(text: englishText, targetLanguage: .english, averageLogProb: englishAverageLogProb)
+        let polishScore = candidateScore(
+            text: polishText,
+            targetLanguage: .polish,
+            averageLogProb: polishAverageLogProb,
+            averageNoSpeechProb: polishAverageNoSpeechProb,
+            averageCompressionRatio: polishAverageCompressionRatio
+        )
+        let englishScore = candidateScore(
+            text: englishText,
+            targetLanguage: .english,
+            averageLogProb: englishAverageLogProb,
+            averageNoSpeechProb: englishAverageNoSpeechProb,
+            averageCompressionRatio: englishAverageCompressionRatio
+        )
         return englishScore > polishScore ? .english : .polish
     }
 
-    static func candidateScore(text: String, targetLanguage: Language, averageLogProb: Double = 0) -> Double {
+    static func candidateScore(
+        text: String,
+        targetLanguage: Language,
+        averageLogProb: Double = 0,
+        averageNoSpeechProb: Double = 0,
+        averageCompressionRatio: Double = 1
+    ) -> Double {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return -100 }
 
         let detectedLanguage = PostProcessor.detectTextLanguage(text)
@@ -297,6 +325,10 @@ class WhisperKitEngine: STTEngineProtocol {
         var score = averageLogProb * 8.0 + Double(min(words, 12)) * 0.1
 
         if !isValidPolishOrEnglish(text) { score -= 100 }
+        score -= averageNoSpeechProb * 8.0
+        if averageCompressionRatio > 1.8 {
+            score -= (averageCompressionRatio - 1.8) * 2.5
+        }
 
         switch targetLanguage {
         case .english:
@@ -318,6 +350,17 @@ class WhisperKitEngine: STTEngineProtocol {
         guard !result.segments.isEmpty else { return -2.0 }
         let total = result.segments.reduce(0.0) { $0 + Double($1.avgLogprob) }
         return total / Double(result.segments.count)
+    }
+
+    private static func segmentQuality(_ result: TranscriptionResult) -> (averageNoSpeechProb: Double, averageCompressionRatio: Double) {
+        guard !result.segments.isEmpty else { return (0, 1) }
+        let noSpeechTotal = result.segments.reduce(0.0) { $0 + Double($1.noSpeechProb) }
+        let compressionTotal = result.segments.reduce(0.0) { $0 + Double($1.compressionRatio) }
+        let count = Double(result.segments.count)
+        return (
+            averageNoSpeechProb: noSpeechTotal / count,
+            averageCompressionRatio: compressionTotal / count
+        )
     }
 }
 

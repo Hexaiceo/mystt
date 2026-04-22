@@ -66,6 +66,11 @@ struct ChatCompletionResponse: Codable {
 }
 
 class OpenAICompatibleClient {
+    struct RequestSizing: Equatable {
+        let maxTokens: Int
+        let timeout: TimeInterval
+    }
+
     let baseURL: String
     let apiKey: String
     let defaultTimeout: TimeInterval
@@ -75,17 +80,14 @@ class OpenAICompatibleClient {
     }
 
     func complete(model: String, systemPrompt: String, userMessage: String, temperature: Double = 0.0, maxTokens: Int = 0) async throws -> String {
-        // Dynamic max_tokens: estimate ~1.5x input word count (STT correction produces similar length)
-        let effectiveMaxTokens: Int
-        if maxTokens > 0 {
-            effectiveMaxTokens = maxTokens
-        } else {
-            let wordCount = userMessage.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
-            effectiveMaxTokens = max(64, min(256, wordCount * 3))
-        }
+        let requestSizing = Self.requestSizing(
+            for: userMessage,
+            explicitMaxTokens: maxTokens,
+            defaultTimeout: defaultTimeout
+        )
 
         let url = URL(string: "\(baseURL)/chat/completions")!
-        var request = URLRequest(url: url, timeoutInterval: defaultTimeout)
+        var request = URLRequest(url: url, timeoutInterval: requestSizing.timeout)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -101,10 +103,18 @@ class OpenAICompatibleClient {
         let body = ChatCompletionRequest(model: model, messages: [
             ChatMessage(role: "system", content: systemPrompt),
             ChatMessage(role: "user", content: userMessage)
-        ], temperature: temperature, max_tokens: effectiveMaxTokens, extra: extraParams)
+        ], temperature: temperature, max_tokens: requestSizing.maxTokens, extra: extraParams)
         request.httpBody = try JSONEncoder().encode(body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw LLMError.timeout
+        } catch {
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw LLMError.invalidResponse(details: "Not HTTP response")
         }
@@ -123,6 +133,32 @@ class OpenAICompatibleClient {
         text = Self.cleanLLMOutput(text)
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func requestSizing(
+        for userMessage: String,
+        explicitMaxTokens: Int = 0,
+        defaultTimeout: TimeInterval = 10
+    ) -> RequestSizing {
+        if explicitMaxTokens > 0 {
+            return RequestSizing(maxTokens: explicitMaxTokens, timeout: defaultTimeout)
+        }
+
+        let wordCount = userMessage
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .count
+        let characterCount = userMessage.count
+
+        let estimatedByWords = max(96, wordCount * 3)
+        let estimatedByCharacters = max(96, Int(Double(characterCount) / 2.4))
+        let maxTokens = min(1536, max(estimatedByWords, estimatedByCharacters))
+
+        let timeoutFromWords = defaultTimeout + min(120, Double(wordCount) * 0.25)
+        let timeoutFromCharacters = defaultTimeout + min(120, Double(characterCount) / 45.0)
+        let timeout = min(180, max(defaultTimeout, timeoutFromWords, timeoutFromCharacters))
+
+        return RequestSizing(maxTokens: maxTokens, timeout: timeout)
     }
 
     /// Clean LLM output: remove thinking blocks, /no_think tags, and other artifacts
