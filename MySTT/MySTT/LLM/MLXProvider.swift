@@ -6,14 +6,17 @@ class MLXProvider: LLMProviderProtocol {
     private let client: OpenAICompatibleClient
     private let configuredModel: String
     private let baseURL: String
+    private let session: URLSession
     private var resolvedModel: String?
     var providerName: String { "MLX via LM Studio" }
 
     init(modelPath: String = "mlx-community/Qwen2.5-7B-Instruct-4bit",
-         baseURL: String = "http://127.0.0.1:1234/v1") {
+         baseURL: String = "http://127.0.0.1:1234/v1",
+         session: URLSession = .shared) {
         self.configuredModel = modelPath
-        self.baseURL = baseURL
-        self.client = OpenAICompatibleClient(baseURL: baseURL, apiKey: "lm-studio", timeout: 30)
+        self.baseURL = OpenAICompatibleClient.normalizedBaseURL(baseURL, defaultBaseURL: "http://127.0.0.1:1234/v1")
+        self.session = session
+        self.client = OpenAICompatibleClient(baseURL: self.baseURL, apiKey: "lm-studio", timeout: 30, session: session)
     }
 
     func correctText(_ text: String, language: Language, promptDictionary: String, userRules: String = "") async throws -> String {
@@ -24,11 +27,7 @@ class MLXProvider: LLMProviderProtocol {
     }
 
     func isAvailable() async -> Bool {
-        guard let url = URL(string: "\(baseURL)/models") else { return false }
-        do {
-            let (_, response) = try await URLSession.shared.data(from: url)
-            return (response as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        !(await Self.fetchAvailableModels(baseURL: baseURL, session: session)).isEmpty
     }
 
     /// Resolve the model to use: configured model if available, otherwise first loaded LLM model
@@ -61,17 +60,14 @@ class MLXProvider: LLMProviderProtocol {
 
     /// Query LM Studio /v1/models endpoint for loaded models
     static func fetchAvailableModels(baseURL: String) async -> [String] {
-        guard let url = URL(string: "\(baseURL)/models") else { return [] }
-        do {
-            var request = URLRequest(url: url, timeoutInterval: 5)
-            request.setValue("Bearer lm-studio", forHTTPHeaderField: "Authorization")
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let models = json["data"] as? [[String: Any]] {
-                return models.compactMap { $0["id"] as? String }
-            }
-        } catch {}
-        return []
+        await fetchAvailableModels(baseURL: baseURL, session: .shared)
+    }
+
+    static func fetchAvailableModels(baseURL: String, session: URLSession) async -> [String] {
+        await OpenAICompatibleClient.fetchAvailableModels(
+            baseURL: baseURL,
+            apiKey: "lm-studio",
+            session: session
+        )
     }
 }

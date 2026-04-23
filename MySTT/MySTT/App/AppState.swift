@@ -2,6 +2,38 @@ import SwiftUI
 import AVFoundation
 import Combine
 
+struct STTEngineConfiguration: Equatable {
+    let provider: STTProvider
+    let whisperModelName: String
+    let groqAPIKey: String
+
+    init(settings: AppSettings) {
+        self.provider = settings.sttProvider
+        self.whisperModelName = settings.whisperModelName
+        self.groqAPIKey = KeychainManager.groqAPIKey ?? settings.groqSTTAPIKey
+    }
+}
+
+enum RecordingStartBlocker: Equatable {
+    case disabled
+    case alreadyRecording
+    case processingPreviousDictation
+}
+
+private actor TimeoutRaceBox<T: Sendable> {
+    private var hasCompleted = false
+
+    func resume(
+        _ continuation: CheckedContinuation<T, Error>,
+        with result: Result<T, Error>
+    ) -> Bool {
+        guard !hasCompleted else { return false }
+        hasCompleted = true
+        continuation.resume(with: result)
+        return true
+    }
+}
+
 @MainActor
 class AppState: ObservableObject {
     @Published var isRecording = false
@@ -31,6 +63,7 @@ class AppState: ObservableObject {
     private var hotkeyManager: HotkeyManager
     private var soundPlayer: SoundPlayer
     private var settings: AppSettings
+    private var sttEngineConfiguration: STTEngineConfiguration
     private let overlay = RecordingOverlayWindow()
     private let dictationJournal = DictationJournal()
 
@@ -53,6 +86,7 @@ class AppState: ObservableObject {
             llmProvider: llmProvider,
             settings: settings
         )
+        self.sttEngineConfiguration = STTEngineConfiguration(settings: settings)
 
         setupHotkeyCallbacks()
 
@@ -76,7 +110,18 @@ class AppState: ObservableObject {
 
     // MARK: - Model Download
 
-    func downloadSTTModel() async {
+    func downloadSTTModel(forceReload: Bool = false) async {
+        if forceReload {
+            if let sttEngine {
+                await sttEngine.reset()
+            }
+            sttEngine = nil
+            sttModelReady = false
+            sttModelDownloading = false
+            sttDownloadProgress = 0
+            sttDownloadStatus = ""
+        }
+
         guard !sttModelReady, !sttModelDownloading else { return }
 
         switch settings.sttProvider {
@@ -153,7 +198,7 @@ class AppState: ObservableObject {
 
     // MARK: - LLM Factory
 
-    private static func createLLMProvider(settings: AppSettings) -> (any LLMProviderProtocol)? {
+    static func createLLMProvider(settings: AppSettings) -> (any LLMProviderProtocol)? {
         guard settings.enableLLMCorrection else { return nil }
         switch settings.llmProvider {
         case .localMLX:
@@ -162,6 +207,9 @@ class AppState: ObservableObject {
         case .localLMStudio:
             print("[AppState] LLM provider: LM Studio, model: \(settings.lmStudioModelName)")
             return LMStudioProvider(model: settings.lmStudioModelName, baseURL: settings.lmStudioURL)
+        case .ollama:
+            print("[AppState] LLM provider: Ollama, model: \(settings.ollamaModelName), url: \(settings.ollamaURL)")
+            return OllamaProvider(model: settings.ollamaModelName, baseURL: settings.ollamaURL)
         case .groq:
             print("[AppState] LLM provider: Groq")
             return GroqProvider(apiKey: KeychainManager.groqAPIKey ?? settings.groqAPIKey)
@@ -188,9 +236,44 @@ class AppState: ObservableObject {
 
     // MARK: - Recording
 
+    nonisolated static func recordingStartBlocker(
+        isEnabled: Bool,
+        isRecording: Bool,
+        isProcessing: Bool
+    ) -> RecordingStartBlocker? {
+        if !isEnabled { return .disabled }
+        if isRecording { return .alreadyRecording }
+        if isProcessing { return .processingPreviousDictation }
+        return nil
+    }
+
+    nonisolated static func transcriptionTimeout(forAudioDuration duration: Double) -> TimeInterval {
+        min(25, max(8, 6 + duration * 1.8))
+    }
+
+    nonisolated static func shouldRetryTranscription(after error: Error) -> Bool {
+        if error is CancellationError { return false }
+        guard let error = error as? STTError else { return false }
+        switch error {
+        case .emptyAudio:
+            return false
+        case .notInitialized, .transcriptionFailed, .modelNotFound, .timeout:
+            return true
+        }
+    }
+
     func startRecording() {
-        guard isEnabled, !isRecording, !isProcessing else { return }
+        if let blocker = Self.recordingStartBlocker(
+            isEnabled: isEnabled,
+            isRecording: isRecording,
+            isProcessing: isProcessing
+        ) {
+            handleRecordingStartBlocked(by: blocker)
+            return
+        }
+
         guard sttModelReady else {
+            synchronizeHotkeyState(isActive: false)
             statusMessage = "STT model not ready - downloading..."
             if sttModelDownloading {
                 overlay.showStatusIndicator(mode: .loading(detail: "Compiling STT..."))
@@ -210,6 +293,7 @@ class AppState: ObservableObject {
         // Check microphone permission before recording
         let micStatus = PermissionChecker.microphonePermissionStatus()
         guard micStatus == .authorized else {
+            synchronizeHotkeyState(isActive: false)
             statusMessage = "Microphone access denied"
             soundPlayer.playError()
             overlay.showStatusIndicator(mode: .notReady(detail: "No mic access"))
@@ -232,10 +316,12 @@ class AppState: ObservableObject {
         do {
             try audioEngine.startRecording(deviceID: microphoneManager.selectedMicrophone?.id)
             isRecording = true
+            synchronizeHotkeyState(isActive: true)
             statusMessage = "Listening... (Fn=stop, ESC=cancel)"
             soundPlayer.playStartRecording()
             overlay.show(status: .listening)
         } catch {
+            synchronizeHotkeyState(isActive: false)
             statusMessage = "Mic error: \(error.localizedDescription)"
             soundPlayer.playError()
         }
@@ -244,6 +330,7 @@ class AppState: ObservableObject {
     // MARK: - Stop + Process
 
     func stopAndProcess() {
+        synchronizeHotkeyState(isActive: false)
         guard isRecording else { return }
 
         let buffer = audioEngine.stopRecording()
@@ -263,6 +350,7 @@ class AppState: ObservableObject {
         defer {
             isProcessing = false
             processingTask = nil
+            synchronizeHotkeyState(isActive: false)
         }
 
         guard let buffer = buffer, buffer.frameLength > 0 else {
@@ -313,10 +401,13 @@ class AppState: ObservableObject {
             overlay.show(status: .processing, detail: "STT: \(String(format: "%.1f", audioDuration))s audio")
 
             let sttStart = CFAbsoluteTimeGetCurrent()
-            let transcriptionContext = settings.enableDictionary
-                ? TranscriptionContext(prompt: dictionaryEngine.buildSTTPrompt())
-                : .empty
-            let sttResult = try await sttEngine.transcribe(audioBuffer: buffer, context: transcriptionContext)
+            let transcriptionContext = transcriptionContext(for: sttEngine)
+            let sttResult = try await transcribeWithRecovery(
+                using: sttEngine,
+                audioBuffer: buffer,
+                context: transcriptionContext,
+                audioDuration: audioDuration
+            )
             let sttTime = CFAbsoluteTimeGetCurrent() - sttStart
 
             try Task.checkCancellation()
@@ -434,25 +525,74 @@ class AppState: ObservableObject {
         guard !result.isEmpty else { return false }
         guard signalAnalysis.hasAnySignal else { return false }
 
-        let words = result.text
+        let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard Self.isUsableTranscriptText(trimmedText) else { return false }
+
+        let words = trimmedText
             .components(separatedBy: .whitespacesAndNewlines)
             .map { $0.trimmingCharacters(in: .punctuationCharacters) }
             .filter { !$0.isEmpty }
 
-        if !signalAnalysis.hasSpeechLikeSignal {
-            if words.count <= 2 { return false }
-            if result.confidence < -0.5 { return false }
-        }
-
-        if words.count <= 3 && result.confidence < -1.1 {
+        if Self.isKnownWeakSignalHallucination(
+            trimmedText,
+            wordCount: words.count,
+            confidence: result.confidence,
+            signalAnalysis: signalAnalysis
+        ) {
             return false
         }
 
-        if words.count >= 4 && result.confidence < -1.8 {
-            return false
+        if signalAnalysis.hasSpeechLikeSignal {
+            return true
         }
 
-        return true
+        let hasUsableWeakSignal =
+            signalAnalysis.peakAmplitude >= 0.0003 ||
+            signalAnalysis.rmsAmplitude >= 0.00005 ||
+            signalAnalysis.nonSilentFrameRatio >= 0.008
+
+        if hasUsableWeakSignal {
+            return words.count >= 1
+        }
+
+        if words.count <= 2 {
+            return result.confidence >= -2.5
+        }
+
+        return result.confidence >= -3.0
+    }
+
+    private static func isUsableTranscriptText(_ text: String) -> Bool {
+        guard !text.isEmpty else { return false }
+        guard WhisperKitEngine.isValidPolishOrEnglish(text) else { return false }
+        return text.rangeOfCharacter(from: .letters) != nil
+    }
+
+    private static func isKnownWeakSignalHallucination(
+        _ text: String,
+        wordCount: Int,
+        confidence: Float,
+        signalAnalysis: AudioCaptureEngine.SignalAnalysis
+    ) -> Bool {
+        guard !signalAnalysis.hasSpeechLikeSignal else { return false }
+        guard wordCount <= 3 else { return false }
+        guard confidence < -0.2 else { return false }
+        guard signalAnalysis.peakAmplitude < 0.0008 || signalAnalysis.rmsAmplitude < 0.00012 else { return false }
+
+        let normalized = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+
+        let hallucinations: Set<String> = [
+            "dziekuje",
+            "dziękuję",
+            "thank you",
+            "thanks for watching",
+            "napisy stworzone przez spolecznosc amara org",
+            "subtitles by the amara org community"
+        ]
+
+        return hallucinations.contains(normalized)
     }
 
     // MARK: - Cancel (ESC key)
@@ -461,7 +601,7 @@ class AppState: ObservableObject {
         if isRecording {
             _ = audioEngine.stopRecording()
             isRecording = false
-            hotkeyManager.isRecordingActive = false
+            synchronizeHotkeyState(isActive: false)
             overlay.hide()
             soundPlayer.playError()
             statusMessage = "Cancelled"
@@ -470,7 +610,7 @@ class AppState: ObservableObject {
         if isProcessing {
             processingTask?.cancel()
             isProcessing = false
-            hotkeyManager.isRecordingActive = false
+            synchronizeHotkeyState(isActive: false)
             overlay.hide()
             soundPlayer.playError()
             statusMessage = "Cancelled"
@@ -485,7 +625,9 @@ class AppState: ObservableObject {
     // MARK: - Settings
 
     func reloadSettings() {
+        let previousSTTConfiguration = sttEngineConfiguration
         settings = AppSettings.load()
+        sttEngineConfiguration = STTEngineConfiguration(settings: settings)
         soundPlayer.setEnabled(settings.playSound)
         hotkeyManager.updateKeyCode(settings.hotkeyKeyCode)
         let llmProvider = Self.createLLMProvider(settings: settings)
@@ -494,7 +636,11 @@ class AppState: ObservableObject {
             dictionaryEngine: dictionaryEngine, punctuationCorrector: nil,
             llmProvider: llmProvider, settings: settings
         )
-        Task { await downloadSTTModel(); await checkLLMStatus() }
+        let shouldReloadSTT = previousSTTConfiguration != sttEngineConfiguration
+        Task {
+            await downloadSTTModel(forceReload: shouldReloadSTT)
+            await checkLLMStatus()
+        }
     }
 
     func updateMicrophoneName() {
@@ -516,6 +662,105 @@ class AppState: ObservableObject {
         processingTask?.cancel()
         overlay.hide()
         if isRecording { _ = audioEngine.stopRecording() }
+        synchronizeHotkeyState(isActive: false)
+    }
+
+    private func handleRecordingStartBlocked(by blocker: RecordingStartBlocker) {
+        switch blocker {
+        case .disabled:
+            synchronizeHotkeyState(isActive: false)
+        case .alreadyRecording:
+            synchronizeHotkeyState(isActive: true)
+        case .processingPreviousDictation:
+            synchronizeHotkeyState(isActive: false)
+            statusMessage = "Finishing previous dictation..."
+            overlay.showStatusIndicator(mode: .loading(detail: "Finishing previous dictation"))
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                overlay.hideStatusIndicator()
+                if !isProcessing && statusMessage == "Finishing previous dictation..." {
+                    statusMessage = "Ready - press Fn to record"
+                }
+            }
+        }
+    }
+
+    private func synchronizeHotkeyState(isActive: Bool) {
+        hotkeyManager.isRecordingActive = isActive
+    }
+
+    private func transcribeWithRecovery(
+        using engine: any STTEngineProtocol,
+        audioBuffer: AVAudioPCMBuffer,
+        context: TranscriptionContext,
+        audioDuration: Double
+    ) async throws -> STTResult {
+        let timeout = Self.transcriptionTimeout(forAudioDuration: audioDuration)
+        var lastError: Error?
+
+        for attempt in 1...2 {
+            do {
+                let result = try await Self.withTimeout(seconds: timeout) {
+                    if attempt > 1 {
+                        await engine.reset()
+                        try await engine.prepare()
+                    }
+                    return try await engine.transcribe(audioBuffer: audioBuffer, context: context)
+                }
+                sttModelReady = true
+                return result
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                print("[Pipeline] STT attempt \(attempt) failed: \(error.localizedDescription)")
+                guard attempt == 1, Self.shouldRetryTranscription(after: error) else { break }
+                statusMessage = "Recovering speech engine..."
+                overlay.show(status: .processing, detail: "Recovering STT")
+                sttModelReady = false
+            }
+        }
+
+        throw lastError ?? STTError.timeout
+    }
+
+    private func transcriptionContext(for engine: any STTEngineProtocol) -> TranscriptionContext {
+        guard settings.enableDictionary, engine.supportsPromptConditioning else {
+            return .empty
+        }
+
+        return TranscriptionContext(prompt: dictionaryEngine.buildSTTPrompt())
+    }
+
+    private static func withTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            let race = TimeoutRaceBox<T>()
+            var operationTask: Task<Void, Never>?
+            var timeoutTask: Task<Void, Never>?
+
+            operationTask = Task {
+                do {
+                    let value = try await operation()
+                    let resumed = await race.resume(continuation, with: .success(value))
+                    if resumed { timeoutTask?.cancel() }
+                } catch {
+                    let resumed = await race.resume(continuation, with: .failure(error))
+                    if resumed { timeoutTask?.cancel() }
+                }
+            }
+
+            timeoutTask = Task {
+                do {
+                    let nanoseconds = UInt64(seconds * 1_000_000_000)
+                    try await Task.sleep(nanoseconds: nanoseconds)
+                    let resumed = await race.resume(continuation, with: .failure(STTError.timeout))
+                    if resumed { operationTask?.cancel() }
+                } catch {}
+            }
+        }
     }
 
     private func storeDictationRecord(

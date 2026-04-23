@@ -169,11 +169,15 @@ class PostProcessor: PostProcessorProtocol {
             "would", "could", "should", "can", "may", "might", "shall",
             "let's", "lets", "let", "how", "what", "where", "when", "why", "who",
             "this", "that", "these", "those", "with", "from", "they", "them",
+            "i", "im", "i'm", "me", "my", "mine", "you", "your", "yours",
+            "we", "our", "ours", "us", "he", "him", "his", "she", "her", "hers",
+            "it", "its", "do", "does", "did", "done", "be", "am", "been", "being",
             "in", "on", "to", "for", "of", "into", "at", "by", "as", "if",
             "it's", "don't", "doesn't", "didn't", "won't", "wouldn't", "isn't",
             "check", "works", "hello", "please", "thanks", "thank", "good",
             "just", "also", "but", "and", "or", "not", "yes", "no",
             "hey", "hi", "sure", "okay", "ok", "yep", "yeah",
+            "now", "then", "still", "seem", "seems", "look", "looks", "fine",
             "copy", "paste", "auto", "test", "here", "there", "answer", "open",
             "create", "edit", "save", "write", "update", "change", "file", "folder",
             "html", "markdown", "json", "swift", "code"
@@ -181,10 +185,18 @@ class PostProcessor: PostProcessorProtocol {
 
         var polishScore = 0
         var englishScore = 0
+        var polishMatches = 0
+        var englishMatches = 0
 
         for word in words {
-            if polishFunctionWords.contains(word) { polishScore += 2 }
-            if englishFunctionWords.contains(word) { englishScore += 2 }
+            if polishFunctionWords.contains(word) {
+                polishScore += 2
+                polishMatches += 1
+            }
+            if englishFunctionWords.contains(word) {
+                englishScore += 2
+                englishMatches += 1
+            }
         }
 
         // Polish diacritics (even 1) boost Polish score
@@ -195,6 +207,22 @@ class PostProcessor: PostProcessorProtocol {
 
         // File-like tokens are much more common in English coding dictation.
         if lowered.range(of: #"\b[a-z0-9_-]+\.(html|md|txt|json|swift|js|ts|tsx|jsx|css|py|java|kt|go|rs)\b"#, options: .regularExpression) != nil {
+            englishScore += 2
+        }
+
+        // If a majority of the words are recognized in one language, treat that as a strong signal.
+        if englishMatches * 2 >= max(3, words.count) {
+            englishScore += 3
+        }
+        if polishMatches * 2 >= max(3, words.count) {
+            polishScore += 3
+        }
+
+        // Common short English sentence skeletons are easy for STT to misroute into Polish.
+        if lowered.range(of: #"\b(now|it)\s+(it\s+)?(seem|seems|look|looks)\b"#, options: .regularExpression) != nil {
+            englishScore += 3
+        }
+        if lowered.range(of: #"\b(seem|seems|look|looks)\s+(ok|okay|fine)\b"#, options: .regularExpression) != nil {
             englishScore += 2
         }
 

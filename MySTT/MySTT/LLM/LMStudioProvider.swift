@@ -4,13 +4,19 @@ class LMStudioProvider: LLMProviderProtocol {
     private let client: OpenAICompatibleClient
     private let configuredModel: String
     private let baseURL: String
+    private let session: URLSession
     private var resolvedModel: String?
     var providerName: String { "LM Studio" }
 
-    init(model: String = "bielik-11b-v3.0-instruct", baseURL: String = "http://127.0.0.1:1234/v1") {
-        self.configuredModel = model
-        self.baseURL = baseURL
-        self.client = OpenAICompatibleClient(baseURL: baseURL, apiKey: "lm-studio", timeout: 30)
+    init(
+        model: String = "bielik-11b-v3.0-instruct",
+        baseURL: String = "http://127.0.0.1:1234/v1",
+        session: URLSession = .shared
+    ) {
+        self.configuredModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.baseURL = OpenAICompatibleClient.normalizedBaseURL(baseURL, defaultBaseURL: "http://127.0.0.1:1234/v1")
+        self.session = session
+        self.client = OpenAICompatibleClient(baseURL: self.baseURL, apiKey: "lm-studio", timeout: 30, session: session)
     }
 
     func correctText(_ text: String, language: Language, promptDictionary: String, userRules: String = "") async throws -> String {
@@ -21,18 +27,14 @@ class LMStudioProvider: LLMProviderProtocol {
     }
 
     func isAvailable() async -> Bool {
-        guard let url = URL(string: "\(baseURL)/models") else { return false }
-        do {
-            let (_, response) = try await URLSession.shared.data(from: url)
-            return (response as? HTTPURLResponse)?.statusCode == 200
-        } catch { return false }
+        !(await MLXProvider.fetchAvailableModels(baseURL: baseURL, session: session)).isEmpty
     }
 
     /// Resolve the model to use: configured model if available, otherwise first loaded LLM model
     private func resolveModel() async throws -> String {
         if let resolved = resolvedModel { return resolved }
 
-        let available = await MLXProvider.fetchAvailableModels(baseURL: baseURL)
+        let available = await MLXProvider.fetchAvailableModels(baseURL: baseURL, session: session)
 
         if available.contains(configuredModel) {
             resolvedModel = configuredModel

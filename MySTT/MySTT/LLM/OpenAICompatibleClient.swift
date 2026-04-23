@@ -74,9 +74,13 @@ class OpenAICompatibleClient {
     let baseURL: String
     let apiKey: String
     let defaultTimeout: TimeInterval
+    let session: URLSession
 
-    init(baseURL: String, apiKey: String, timeout: TimeInterval = 10) {
-        self.baseURL = baseURL; self.apiKey = apiKey; self.defaultTimeout = timeout
+    init(baseURL: String, apiKey: String, timeout: TimeInterval = 10, session: URLSession = .shared) {
+        self.baseURL = Self.normalizedBaseURL(baseURL)
+        self.apiKey = apiKey
+        self.defaultTimeout = timeout
+        self.session = session
     }
 
     func complete(model: String, systemPrompt: String, userMessage: String, temperature: Double = 0.0, maxTokens: Int = 0) async throws -> String {
@@ -109,7 +113,7 @@ class OpenAICompatibleClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch let error as URLError where error.code == .timedOut {
             throw LLMError.timeout
         } catch {
@@ -133,6 +137,86 @@ class OpenAICompatibleClient {
         text = Self.cleanLLMOutput(text)
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func normalizedBaseURL(_ rawBaseURL: String, defaultBaseURL: String? = nil) -> String {
+        let trimmed = rawBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = (defaultBaseURL ?? rawBaseURL).trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = trimmed.isEmpty ? fallback : trimmed
+        guard !candidate.isEmpty else { return "" }
+
+        let withScheme: String
+        if candidate.contains("://") {
+            withScheme = candidate
+        } else {
+            withScheme = "http://\(candidate)"
+        }
+
+        guard var components = URLComponents(string: withScheme) else {
+            return candidate.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+
+        var path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if path.hasSuffix("chat/completions") {
+            path = String(path.dropLast("chat/completions".count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        } else if path.hasSuffix("models") {
+            path = String(path.dropLast("models".count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+
+        if path.isEmpty, let defaultBaseURL,
+           let defaultComponents = URLComponents(string: normalizedBaseURL(defaultBaseURL)),
+           !defaultComponents.path.isEmpty {
+            components.path = defaultComponents.path
+        } else {
+            components.path = path.isEmpty ? "" : "/\(path)"
+        }
+        components.query = nil
+        components.fragment = nil
+
+        return components.string?.trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? withScheme.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    static func parseAvailableModelIdentifiers(from data: Data) -> [String] {
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let models = json["data"] as? [[String: Any]] {
+                return models.compactMap { item in
+                    (item["id"] as? String)
+                    ?? (item["model"] as? String)
+                    ?? (item["name"] as? String)
+                }
+            }
+            if let models = json["models"] as? [[String: Any]] {
+                return models.compactMap { item in
+                    (item["name"] as? String)
+                    ?? (item["model"] as? String)
+                    ?? (item["id"] as? String)
+                }
+            }
+        }
+
+        return []
+    }
+
+    static func fetchAvailableModels(
+        baseURL: String,
+        apiKey: String,
+        timeout: TimeInterval = 5,
+        session: URLSession = .shared
+    ) async -> [String] {
+        let normalizedBaseURL = Self.normalizedBaseURL(baseURL)
+        guard let url = URL(string: "\(normalizedBaseURL)/models") else { return [] }
+
+        do {
+            var request = URLRequest(url: url, timeoutInterval: timeout)
+            if !apiKey.isEmpty {
+                request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
+            let (data, response) = try await session.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+            return parseAvailableModelIdentifiers(from: data)
+        } catch {
+            return []
+        }
     }
 
     static func requestSizing(

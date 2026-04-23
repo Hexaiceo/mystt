@@ -3,10 +3,12 @@ import AVFoundation
 
 class MockSTTEngine: STTEngineProtocol {
     var isReady: Bool = true
+    var supportsPromptConditioning = true
     var mockResult: STTResult = STTResult(text: "hello world", language: .english, confidence: 0.95, segments: [])
     var shouldThrow: Error?
     var transcribeCallCount = 0
     var prepareCallCount = 0
+    var resetCallCount = 0
     var lastReceivedContext: TranscriptionContext?
 
     func prepare() async throws {
@@ -18,5 +20,9 @@ class MockSTTEngine: STTEngineProtocol {
         lastReceivedContext = context
         if let error = shouldThrow { throw error }
         return mockResult
+    }
+
+    func reset() async {
+        resetCallCount += 1
     }
 }

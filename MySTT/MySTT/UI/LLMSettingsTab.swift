@@ -8,6 +8,8 @@ struct LLMSettingsTab: View {
     @AppStorage("mlxModelName") private var mlxModel = "mlx-community/Qwen2.5-3B-Instruct-4bit"
     @AppStorage("lmStudioModelName") private var lmStudioModel = "bielik-11b-v3.0-instruct"
     @AppStorage("lmStudioURL") private var lmStudioURL = "http://127.0.0.1:1234/v1"
+    @AppStorage("ollamaModelName") private var ollamaModel = "qwen2.5:3b"
+    @AppStorage("ollamaURL") private var ollamaURL = "http://127.0.0.1:11434"
     @State private var testResult = ""
     @State private var isTesting = false
 
@@ -38,6 +40,15 @@ struct LLMSettingsTab: View {
                     TextField("Model", text: $lmStudioModel)
                     TextField("Server URL", text: $lmStudioURL)
                     Text("Ensure LM Studio is running with the model loaded.").font(.caption).foregroundColor(.secondary)
+                }
+            }
+            if llmProvider == LLMProvider.ollama.rawValue {
+                Section("Ollama Settings") {
+                    TextField("Model", text: $ollamaModel)
+                    TextField("Server URL", text: $ollamaURL)
+                    Text("Uses Ollama on port 11434 by default. Host-only and native `/api` URLs are normalized automatically.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
             }
             if llmProvider == LLMProvider.groq.rawValue {
@@ -81,6 +92,8 @@ struct LLMSettingsTab: View {
         .onChange(of: mlxModel) { _, _ in appState.reloadSettings() }
         .onChange(of: lmStudioModel) { _, _ in appState.reloadSettings() }
         .onChange(of: lmStudioURL) { _, _ in appState.reloadSettings() }
+        .onChange(of: ollamaModel) { _, _ in appState.reloadSettings() }
+        .onChange(of: ollamaURL) { _, _ in appState.reloadSettings() }
     }
 
     private func testConnection() {
@@ -99,6 +112,8 @@ struct LLMSettingsTab: View {
                     baseURL = lmStudioURL; model = lmStudioModel; apiKey = "lm-studio"
                 case .localMLX:
                     baseURL = "http://127.0.0.1:1234/v1"; model = mlxModel; apiKey = "lm-studio"
+                case .ollama:
+                    baseURL = OllamaProvider.normalizedBaseURL(ollamaURL); model = ollamaModel; apiKey = "ollama"
                 case .groq:
                     baseURL = "https://api.groq.com/openai/v1"; model = "llama-3.1-8b-instant"; apiKey = KeychainManager.groqAPIKey ?? ""
                 case .openai:

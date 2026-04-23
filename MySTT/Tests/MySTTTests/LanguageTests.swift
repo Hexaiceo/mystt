@@ -89,6 +89,10 @@ final class LanguageTests: XCTestCase {
         XCTAssertEqual(PostProcessor.detectTextLanguage("Hey Jihed, sure."), .english)
     }
 
+    func test_postProcessor_detectTextLanguage_nowItSeemsOk_isEnglish() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("now it seems ok"), .english)
+    }
+
     func test_postProcessor_detectTextLanguage_shortPolishPhrase() {
         XCTAssertEqual(PostProcessor.detectTextLanguage("Hej Jihed, pewnie."), .polish)
     }
@@ -117,5 +121,16 @@ final class LanguageTests: XCTestCase {
         )
 
         XCTAssertEqual(preferred, .polish)
+    }
+
+    func test_whisperPrefersEnglishCandidateForNowItSeemsOk() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Teraz wygląda ok.",
+            englishText: "Now it seems ok.",
+            polishAverageLogProb: -0.35,
+            englishAverageLogProb: -0.55
+        )
+
+        XCTAssertEqual(preferred, .english)
     }
 }

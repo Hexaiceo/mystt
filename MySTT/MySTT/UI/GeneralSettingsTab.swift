@@ -387,6 +387,8 @@ struct GeneralSettingsTab: View {
             return "\(short) (MLX)"
         case .localLMStudio:
             return "\(settings.lmStudioModelName) (LM Studio)"
+        case .ollama:
+            return "\(settings.ollamaModelName) (Ollama)"
         case .groq:
             return "Groq Cloud"
         case .openai:

@@ -5,6 +5,7 @@ class WhisperKitEngine: STTEngineProtocol {
     private var whisperKit: WhisperKit?
     private var modelName: String
     private(set) var isReady: Bool = false
+    let supportsPromptConditioning = false
 
     var onProgress: ((Double, String) -> Void)?
 
@@ -138,6 +139,11 @@ class WhisperKitEngine: STTEngineProtocol {
         }
     }
 
+    func reset() async {
+        whisperKit = nil
+        isReady = false
+    }
+
     // MARK: - Transcribe
 
     func transcribe(audioBuffer: AVAudioPCMBuffer, context: TranscriptionContext = .empty) async throws -> STTResult {
@@ -156,9 +162,14 @@ class WhisperKitEngine: STTEngineProtocol {
             // Strategy: decode both Polish and English, then choose the better candidate.
             // This is slower than a single pass, but much more robust for short dictation where
             // a forced Polish decode can transliterate English speech into Polish words.
-            let polishResult = try await transcribeWith(floats: floats, language: "pl", prompt: context.prompt)
+            if let prompt = context.prompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !prompt.isEmpty {
+                print("[WhisperKit] Ignoring STT prompt conditioning because WhisperKit prompt tokens can suppress output")
+            }
+
+            let polishResult = try await transcribeWith(floats: floats, language: "pl")
             let polishText = polishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let englishResult = try await transcribeWith(floats: floats, language: "en", prompt: context.prompt)
+            let englishResult = try await transcribeWith(floats: floats, language: "en")
             let englishText = englishResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let polishQuality = Self.segmentQuality(polishResult)
             let englishQuality = Self.segmentQuality(englishResult)
@@ -197,16 +208,16 @@ class WhisperKitEngine: STTEngineProtocol {
 
     // MARK: - Helpers
 
-    private func transcribeWith(floats: [Float], language: String, prompt: String?) async throws -> TranscriptionResult {
+    private func transcribeWith(floats: [Float], language: String) async throws -> TranscriptionResult {
         guard let whisperKit = whisperKit else { throw STTError.notInitialized }
 
-        var options = DecodingOptions(
+        let options = DecodingOptions(
             verbose: false,
             task: .transcribe,
             language: language,
             temperature: 0.0,
             usePrefillPrompt: true,
-            usePrefillCache: true,
+            usePrefillCache: false,
             detectLanguage: false,
             skipSpecialTokens: true,
             withoutTimestamps: false,
@@ -214,13 +225,6 @@ class WhisperKitEngine: STTEngineProtocol {
             logProbThreshold: -1.0,
             noSpeechThreshold: 0.6
         )
-
-        if let prompt,
-           !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           let tokenizer = whisperKit.tokenizer {
-            options.promptTokens = tokenizer.encode(text: " " + prompt.trimmingCharacters(in: .whitespacesAndNewlines))
-                .filter { $0 < tokenizer.specialTokens.specialTokenBegin }
-        }
 
         let results = try await whisperKit.transcribe(audioArray: floats, decodeOptions: options)
         guard let result = results.first else {

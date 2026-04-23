@@ -3,6 +3,7 @@ import Foundation
 enum LLMProvider: String, CaseIterable, Codable, Identifiable {
     case localMLX = "localMLX"
     case localLMStudio = "localLMStudio"
+    case ollama = "ollama"
     case groq = "groq"
     case openai = "openai"
 
@@ -12,6 +13,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .localMLX: return "MLX (Local)"
         case .localLMStudio: return "LM Studio (Local)"
+        case .ollama: return "Ollama (Local)"
         case .groq: return "Groq Cloud"
         case .openai: return "OpenAI"
         }
@@ -19,7 +21,7 @@ enum LLMProvider: String, CaseIterable, Codable, Identifiable {
 
     var isLocal: Bool {
         switch self {
-        case .localMLX, .localLMStudio: return true
+        case .localMLX, .localLMStudio, .ollama: return true
         default: return false
         }
     }

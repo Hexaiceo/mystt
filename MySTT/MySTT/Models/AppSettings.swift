@@ -9,6 +9,8 @@ struct AppSettings: Codable, Equatable {
     var mlxModelName: String = "mlx-community/Qwen2.5-3B-Instruct-4bit"
     var lmStudioModelName: String = "bielik-11b-v3.0-instruct"
     var lmStudioURL: String = "http://127.0.0.1:1234/v1"
+    var ollamaModelName: String = "qwen2.5:3b"
+    var ollamaURL: String = "http://127.0.0.1:11434"
     var groqAPIKey: String = ""
     var openaiAPIKey: String = ""
 
@@ -29,6 +31,9 @@ struct AppSettings: Codable, Equatable {
     /// falling back to the JSON blob, then to defaults.
     static func load() -> AppSettings {
         let ud = UserDefaults.standard
+        func trimmed(_ value: String?) -> String? {
+            value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
         // Start from JSON blob if available, otherwise defaults
         var settings: AppSettings
@@ -43,20 +48,26 @@ struct AppSettings: Codable, Equatable {
         if let raw = ud.string(forKey: "sttProvider"), let val = STTProvider(rawValue: raw) {
             settings.sttProvider = val
         }
-        if let val = ud.string(forKey: "whisperModelName"), !val.isEmpty {
+        if let val = trimmed(ud.string(forKey: "whisperModelName")), !val.isEmpty {
             settings.whisperModelName = val
         }
         if let raw = ud.string(forKey: "llmProvider"), let val = LLMProvider(rawValue: raw) {
             settings.llmProvider = val
         }
-        if let val = ud.string(forKey: "mlxModelName"), !val.isEmpty {
+        if let val = trimmed(ud.string(forKey: "mlxModelName")), !val.isEmpty {
             settings.mlxModelName = val
         }
-        if let val = ud.string(forKey: "lmStudioModelName"), !val.isEmpty {
+        if let val = trimmed(ud.string(forKey: "lmStudioModelName")), !val.isEmpty {
             settings.lmStudioModelName = val
         }
-        if let val = ud.string(forKey: "lmStudioURL"), !val.isEmpty {
+        if let val = trimmed(ud.string(forKey: "lmStudioURL")), !val.isEmpty {
             settings.lmStudioURL = val
+        }
+        if let val = trimmed(ud.string(forKey: "ollamaModelName")), !val.isEmpty {
+            settings.ollamaModelName = val
+        }
+        if let val = trimmed(ud.string(forKey: "ollamaURL")), !val.isEmpty {
+            settings.ollamaURL = val
         }
         // Bool overrides — only apply if the key was explicitly set
         if ud.object(forKey: "enableLLMCorrection") != nil {

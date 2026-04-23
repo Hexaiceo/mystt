@@ -361,6 +361,26 @@ final class PipelineIntegrationTests: XCTestCase {
         XCTAssertEqual(mockLLM.lastReceivedLanguage, .polish)
     }
 
+    // MARK: - Test 16b: Reject Polish translation of short English phrase
+
+    func test_pipeline_discardsPolishTranslationForShortEnglishPhrase() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Teraz wygląda ok."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("now it seems ok", language: .english)
+
+        XCTAssertEqual(result, "now it seems ok")
+        XCTAssertEqual(mockLLM.callCount, 1)
+        XCTAssertEqual(mockLLM.lastReceivedLanguage, .english)
+    }
+
     // MARK: - Test 17: Allow short typo cleanup when meaning is unchanged
 
     func test_pipeline_allowsShortOrthographicCleanup() async throws {
@@ -538,5 +558,43 @@ final class PipelineIntegrationTests: XCTestCase {
         )
 
         XCTAssertTrue(AppState.shouldAcceptTranscription(result, signalAnalysis: signal))
+    }
+
+    @MainActor
+    func test_weakSignalShortTranscriptIsAccepted() {
+        let weakSignal = AudioCaptureEngine.SignalAnalysis(
+            peakAmplitude: 0.00042,
+            rmsAmplitude: 0.00008,
+            nonSilentFrameRatio: 0.012,
+            speechFrameRatio: 0.002,
+            frameCount: 24000
+        )
+        let result = STTResult(
+            text: "open settings",
+            language: .english,
+            confidence: -2.1,
+            segments: []
+        )
+
+        XCTAssertTrue(AppState.shouldAcceptTranscription(result, signalAnalysis: weakSignal))
+    }
+
+    @MainActor
+    func test_knownWeakSignalHallucinationIsRejected() {
+        let weakSignal = AudioCaptureEngine.SignalAnalysis(
+            peakAmplitude: 0.0003,
+            rmsAmplitude: 0.00005,
+            nonSilentFrameRatio: 0.01,
+            speechFrameRatio: 0.001,
+            frameCount: 24000
+        )
+        let result = STTResult(
+            text: "Dziękuję.",
+            language: .polish,
+            confidence: -0.8,
+            segments: []
+        )
+
+        XCTAssertFalse(AppState.shouldAcceptTranscription(result, signalAnalysis: weakSignal))
     }
 }

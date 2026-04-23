@@ -24,10 +24,13 @@ class AudioCaptureEngine: ObservableObject {
 
     private var audioEngine = AVAudioEngine()
     private var audioBuffers: [AVAudioPCMBuffer] = []
+    private let audioBuffersLock = NSLock()
     private let targetFormat: AVAudioFormat
     private var micPermissionGranted = false
     private(set) var activeInputDeviceID: AudioDeviceID?
     private(set) var activeInputDeviceName: String = "Unknown"
+    private var activeRecordingSessionID: UInt64 = 0
+    private var nextRecordingSessionID: UInt64 = 0
 
     init() {
         targetFormat = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
@@ -57,7 +60,7 @@ class AudioCaptureEngine: ObservableObject {
 
     func startRecording(deviceID: AudioDeviceID? = nil) throws {
         guard !isRecording else { return }
-        audioBuffers = []
+        let sessionID = beginRecordingSession()
 
         // Always create a fresh engine so a newly selected device can be bound cleanly.
         audioEngine.stop()
@@ -89,7 +92,7 @@ class AudioCaptureEngine: ObservableObject {
             guard let self = self else { return }
             if inputFormat.sampleRate != self.targetFormat.sampleRate || inputFormat.channelCount != self.targetFormat.channelCount {
                 if let converted = self.convertBuffer(buffer, from: inputFormat, to: self.targetFormat) {
-                    self.audioBuffers.append(converted)
+                    self.appendAudioBuffer(converted, forSessionID: sessionID)
                 }
             } else {
                 // Copy buffer — the tap's buffer memory is reused after callback returns
@@ -100,7 +103,7 @@ class AudioCaptureEngine: ObservableObject {
                             memcpy(dst[ch], src[ch], Int(buffer.frameLength) * MemoryLayout<Float>.size)
                         }
                     }
-                    self.audioBuffers.append(copy)
+                    self.appendAudioBuffer(copy, forSessionID: sessionID)
                 }
             }
         }
@@ -116,9 +119,7 @@ class AudioCaptureEngine: ObservableObject {
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
         DispatchQueue.main.async { self.isRecording = false }
-
-        let buffers = audioBuffers
-        audioBuffers = []
+        let buffers = drainAudioBuffersAndDeactivateSession()
         return mergeBuffers(buffers)
     }
 
@@ -272,5 +273,30 @@ class AudioCaptureEngine: ObservableObject {
         }
         merged.frameLength = totalFrames
         return merged
+    }
+
+    private func beginRecordingSession() -> UInt64 {
+        audioBuffersLock.lock()
+        defer { audioBuffersLock.unlock() }
+        audioBuffers = []
+        nextRecordingSessionID &+= 1
+        activeRecordingSessionID = nextRecordingSessionID
+        return activeRecordingSessionID
+    }
+
+    private func appendAudioBuffer(_ buffer: AVAudioPCMBuffer, forSessionID sessionID: UInt64) {
+        audioBuffersLock.lock()
+        defer { audioBuffersLock.unlock() }
+        guard activeRecordingSessionID == sessionID else { return }
+        audioBuffers.append(buffer)
+    }
+
+    private func drainAudioBuffersAndDeactivateSession() -> [AVAudioPCMBuffer] {
+        audioBuffersLock.lock()
+        defer { audioBuffersLock.unlock() }
+        let buffers = audioBuffers
+        audioBuffers = []
+        activeRecordingSessionID = 0
+        return buffers
     }
 }
