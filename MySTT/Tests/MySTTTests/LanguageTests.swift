@@ -97,6 +97,14 @@ final class LanguageTests: XCTestCase {
         XCTAssertEqual(PostProcessor.detectTextLanguage("Hej Jihed, pewnie."), .polish)
     }
 
+    func test_postProcessor_detectTextLanguage_polishWithoutDiacritics_isPolish() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("to wyglada dobrze"), .polish)
+    }
+
+    func test_postProcessor_detectTextLanguage_polishNoToOk_isPolish() {
+        XCTAssertEqual(PostProcessor.detectTextLanguage("no to jest ok"), .polish)
+    }
+
     func test_postProcessor_detectTextLanguage_polishParticleNo_isAmbiguous() {
         XCTAssertEqual(PostProcessor.detectTextLanguage("no"), .unknown)
     }
@@ -128,9 +136,22 @@ final class LanguageTests: XCTestCase {
             polishText: "Teraz wygląda ok.",
             englishText: "Now it seems ok.",
             polishAverageLogProb: -0.35,
-            englishAverageLogProb: -0.55
+            englishAverageLogProb: -0.55,
+            detectedSpokenLanguage: .english
         )
 
         XCTAssertEqual(preferred, .english)
+    }
+
+    func test_whisperPrefersPolishCandidateForNoDiacriticsPolishUtterance() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "To wyglada dobrze.",
+            englishText: "It looks good.",
+            polishAverageLogProb: -0.55,
+            englishAverageLogProb: -0.35,
+            detectedSpokenLanguage: .polish
+        )
+
+        XCTAssertEqual(preferred, .polish)
     }
 }

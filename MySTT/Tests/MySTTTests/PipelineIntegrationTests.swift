@@ -381,6 +381,26 @@ final class PipelineIntegrationTests: XCTestCase {
         XCTAssertEqual(mockLLM.lastReceivedLanguage, .english)
     }
 
+    // MARK: - Test 16c: Reject English translation of short Polish phrase
+
+    func test_pipeline_discardsEnglishTranslationForShortPolishPhrase() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Now it looks ok."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("teraz wyglada ok", language: .polish)
+
+        XCTAssertEqual(result, "teraz wyglada ok")
+        XCTAssertEqual(mockLLM.callCount, 1)
+        XCTAssertEqual(mockLLM.lastReceivedLanguage, .polish)
+    }
+
     // MARK: - Test 17: Allow short typo cleanup when meaning is unchanged
 
     func test_pipeline_allowsShortOrthographicCleanup() async throws {

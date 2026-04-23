@@ -142,9 +142,11 @@ class PostProcessor: PostProcessorProtocol {
 
     static func languageScores(_ text: String) -> (english: Int, polish: Int) {
         let lowered = text.lowercased()
+        let folded = lowered.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
         let words = lowered.components(separatedBy: .whitespacesAndNewlines)
             .map { $0.trimmingCharacters(in: .punctuationCharacters) }
             .filter { !$0.isEmpty }
+        let normalizedWords = words.map { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current) }
 
         guard !words.isEmpty else { return (0, 0) }
 
@@ -152,19 +154,23 @@ class PostProcessor: PostProcessorProtocol {
         let polishChars: Set<Character> = ["ą", "ć", "ę", "ł", "ń", "ś", "ź", "ż"]
         let polishCharCount = lowered.filter { polishChars.contains($0) }.count
 
-        // Common function words
-        let polishFunctionWords: Set<String> = [
-            "jest", "nie", "no", "tak", "jak", "się", "czy", "dla", "ale", "był", "była",
-            "będzie", "może", "już", "też", "aby", "lub", "albo", "oraz", "więc",
-            "tylko", "gdzie", "kiedy", "dlaczego", "bardzo", "dobrze", "teraz",
-            "tutaj", "dzisiaj", "jutro", "wczoraj", "działa", "mam", "masz",
-            "proszę", "dziękuję", "dzięki", "sprawdźmy", "możemy", "chcę", "odpowiedz",
-            "hej", "cześć", "siema", "pewnie", "jasne", "okej",
-            "otwórz", "utwórz", "zapisz", "edytuj", "zmień", "plik", "folder",
-            "wklej", "kopiuj", "autokopiuj", "wygląda", "powinno"
+        let ambiguousWords: Set<String> = [
+            "no", "ok", "okay", "test", "auto", "file", "folder"
         ]
 
-        let englishFunctionWords: Set<String> = [
+        let polishStrongWords: Set<String> = [
+            "jest", "nie", "tak", "jak", "sie", "czy", "dla", "ale", "byl", "byla",
+            "bedzie", "moze", "juz", "tez", "aby", "lub", "albo", "oraz", "wiec",
+            "tylko", "gdzie", "kiedy", "dlaczego", "bardzo", "dobrze", "teraz",
+            "tutaj", "dzisiaj", "jutro", "wczoraj", "dziala", "mam", "masz",
+            "prosze", "dziekuje", "dzieki", "sprawdzmy", "mozemy", "chce", "chcesz",
+            "odpowiedz", "hej", "czesc", "siema", "pewnie", "jasne", "okej",
+            "otworz", "utworz", "zapisz", "edytuj", "zmien", "plik", "wklej",
+            "kopiuj", "autokopiuj", "wyglada", "powinno", "powinna", "powinien",
+            "teraz", "dzis", "dzisiaj", "wlasnie", "dalej", "znowu", "polsku"
+        ]
+
+        let englishStrongWords: Set<String> = [
             "the", "is", "are", "was", "were", "have", "has", "had", "will",
             "would", "could", "should", "can", "may", "might", "shall",
             "let's", "lets", "let", "how", "what", "where", "when", "why", "who",
@@ -175,12 +181,21 @@ class PostProcessor: PostProcessorProtocol {
             "in", "on", "to", "for", "of", "into", "at", "by", "as", "if",
             "it's", "don't", "doesn't", "didn't", "won't", "wouldn't", "isn't",
             "check", "works", "hello", "please", "thanks", "thank", "good",
-            "just", "also", "but", "and", "or", "not", "yes", "no",
-            "hey", "hi", "sure", "okay", "ok", "yep", "yeah",
+            "just", "also", "but", "and", "or", "not", "yes",
+            "hey", "hi", "sure", "yep", "yeah",
             "now", "then", "still", "seem", "seems", "look", "looks", "fine",
             "copy", "paste", "auto", "test", "here", "there", "answer", "open",
             "create", "edit", "save", "write", "update", "change", "file", "folder",
             "html", "markdown", "json", "swift", "code"
+        ]
+
+        let polishWeakWords: Set<String> = [
+            "to", "ten", "ta", "te", "tu", "tam", "juz", "tez", "zaraz", "potem",
+            "dobra", "dobrze", "ok", "okej"
+        ]
+
+        let englishWeakWords: Set<String> = [
+            "ok", "okay", "here", "there", "then", "also"
         ]
 
         var polishScore = 0
@@ -188,14 +203,21 @@ class PostProcessor: PostProcessorProtocol {
         var polishMatches = 0
         var englishMatches = 0
 
-        for word in words {
-            if polishFunctionWords.contains(word) {
+        for word in normalizedWords {
+            if ambiguousWords.contains(word) {
+                continue
+            }
+            if polishStrongWords.contains(word) {
                 polishScore += 2
                 polishMatches += 1
+            } else if polishWeakWords.contains(word) {
+                polishScore += 1
             }
-            if englishFunctionWords.contains(word) {
+            if englishStrongWords.contains(word) {
                 englishScore += 2
                 englishMatches += 1
+            } else if englishWeakWords.contains(word) {
+                englishScore += 1
             }
         }
 
@@ -215,6 +237,17 @@ class PostProcessor: PostProcessorProtocol {
             englishScore += 3
         }
         if polishMatches * 2 >= max(3, words.count) {
+            polishScore += 3
+        }
+
+        // Common short Polish sentence skeletons often lose diacritics in STT output.
+        if folded.range(of: #"\b(to|toh?|teraz|wlasnie)\s+(jest|wyglada|dziala|ma|bedzie|powinno)\b"#, options: .regularExpression) != nil {
+            polishScore += 3
+        }
+        if folded.range(of: #"\b(nie|mozemy|moge|chce|trzeba)\s+\b"#, options: .regularExpression) != nil {
+            polishScore += 2
+        }
+        if folded.range(of: #"\b(po|w)\s+polsku\b"#, options: .regularExpression) != nil {
             polishScore += 3
         }
 

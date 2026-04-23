@@ -148,7 +148,7 @@ class WhisperKitEngine: STTEngineProtocol {
 
     func transcribe(audioBuffer: AVAudioPCMBuffer, context: TranscriptionContext = .empty) async throws -> STTResult {
         if !isReady { try await prepare() }
-        guard whisperKit != nil else { throw STTError.notInitialized }
+        guard let whisperKit else { throw STTError.notInitialized }
 
         let floats = audioBuffer.toFloatArray()
         guard !floats.isEmpty else { throw STTError.emptyAudio }
@@ -159,6 +159,7 @@ class WhisperKitEngine: STTEngineProtocol {
         print("[WhisperKit] Transcribing \(String(format: "%.1f", audioDuration))s audio...")
 
         do {
+            let detectedSpokenLanguage = await detectSpokenLanguage(from: floats, whisperKit: whisperKit)
             // Strategy: decode both Polish and English, then choose the better candidate.
             // This is slower than a single pass, but much more robust for short dictation where
             // a forced Polish decode can transliterate English speech into Polish words.
@@ -181,7 +182,8 @@ class WhisperKitEngine: STTEngineProtocol {
                 polishAverageNoSpeechProb: polishQuality.averageNoSpeechProb,
                 englishAverageNoSpeechProb: englishQuality.averageNoSpeechProb,
                 polishAverageCompressionRatio: polishQuality.averageCompressionRatio,
-                englishAverageCompressionRatio: englishQuality.averageCompressionRatio
+                englishAverageCompressionRatio: englishQuality.averageCompressionRatio,
+                detectedSpokenLanguage: detectedSpokenLanguage
             )
 
             if preferredLanguage == .english && Self.isValidPolishOrEnglish(englishText) {
@@ -232,6 +234,29 @@ class WhisperKitEngine: STTEngineProtocol {
                 userInfo: [NSLocalizedDescriptionKey: "Empty transcription result"]))
         }
         return result
+    }
+
+    private func detectSpokenLanguage(from floats: [Float], whisperKit: WhisperKit) async -> Language? {
+        do {
+            let detection = try await whisperKit.detectLangauge(audioArray: floats)
+            let sortedProbabilities = detection.langProbs.sorted { $0.value > $1.value }
+            let topProbability = sortedProbabilities.first?.value ?? 0
+            let runnerUpProbability = sortedProbabilities.dropFirst().first?.value ?? 0
+            let detectedLanguage = Language(whisperCode: detection.language)
+
+            guard detectedLanguage != .unknown else { return nil }
+            guard topProbability >= 0.35 else { return nil }
+            guard topProbability - runnerUpProbability >= 0.12 else { return nil }
+
+            print(
+                "[WhisperKit] Audio language prior: \(detectedLanguage.displayName) " +
+                "(p=\(String(format: "%.2f", topProbability)), margin=\(String(format: "%.2f", topProbability - runnerUpProbability)))"
+            )
+            return detectedLanguage
+        } catch {
+            print("[WhisperKit] Audio language detection unavailable: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func buildResult(from result: TranscriptionResult, elapsed: Double) -> STTResult {
@@ -295,8 +320,10 @@ class WhisperKitEngine: STTEngineProtocol {
         polishAverageNoSpeechProb: Double = 0,
         englishAverageNoSpeechProb: Double = 0,
         polishAverageCompressionRatio: Double = 1,
-        englishAverageCompressionRatio: Double = 1
+        englishAverageCompressionRatio: Double = 1,
+        detectedSpokenLanguage: Language? = nil
     ) -> Language {
+        let spokenLanguagePriorSlack = 7.0
         let polishScore = candidateScore(
             text: polishText,
             targetLanguage: .polish,
@@ -311,6 +338,22 @@ class WhisperKitEngine: STTEngineProtocol {
             averageNoSpeechProb: englishAverageNoSpeechProb,
             averageCompressionRatio: englishAverageCompressionRatio
         )
+
+        if let detectedSpokenLanguage {
+            switch detectedSpokenLanguage {
+            case .polish:
+                if isValidPolishOrEnglish(polishText), polishScore >= englishScore - spokenLanguagePriorSlack {
+                    return .polish
+                }
+            case .english:
+                if isValidPolishOrEnglish(englishText), englishScore >= polishScore - spokenLanguagePriorSlack {
+                    return .english
+                }
+            case .unknown:
+                break
+            }
+        }
+
         return englishScore > polishScore ? .english : .polish
     }
 
