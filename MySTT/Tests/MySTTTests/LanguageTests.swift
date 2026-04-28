@@ -154,4 +154,73 @@ final class LanguageTests: XCTestCase {
 
         XCTAssertEqual(preferred, .polish)
     }
+
+    // MARK: - Cross-candidate translation detection
+
+    func test_whisperPrefersPolishWhenEnglishIsTranslation() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Teraz to wygląda dobrze.",
+            englishText: "Now it looks good.",
+            polishAverageLogProb: -0.7,
+            englishAverageLogProb: -0.3
+        )
+        XCTAssertEqual(preferred, .polish)
+    }
+
+    func test_whisperPrefersPolishWhenEnglishIsTranslation_noSpokenPrior() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Sprawdzmy czy to działa poprawnie.",
+            englishText: "Let's check if it works correctly.",
+            polishAverageLogProb: -0.8,
+            englishAverageLogProb: -0.25
+        )
+        XCTAssertEqual(preferred, .polish)
+    }
+
+    func test_whisperPrefersPolishWhenEnglishIsTranslation_strongLogProbBias() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Muszę to naprawić jak najszybciej.",
+            englishText: "I need to fix this as soon as possible.",
+            polishAverageLogProb: -1.0,
+            englishAverageLogProb: -0.2
+        )
+        XCTAssertEqual(preferred, .polish)
+    }
+
+    func test_whisperPrefersEnglishWhenBothCandidatesAreEnglish() {
+        let preferred = WhisperKitEngine.preferredForcedLanguage(
+            polishText: "Hello, how are you?",
+            englishText: "Hello, how are you?",
+            polishAverageLogProb: -0.5,
+            englishAverageLogProb: -0.3
+        )
+        XCTAssertEqual(preferred, .english)
+    }
+
+    func test_crossCandidateAnalysis_translationPair() {
+        let result = WhisperKitEngine.crossCandidateAnalysis(
+            polishText: "To wyglada dobrze.",
+            englishText: "It looks good."
+        )
+        XCTAssertTrue(result.isTranslationPair)
+        XCTAssertFalse(result.isSameContent)
+    }
+
+    func test_crossCandidateAnalysis_sameContent() {
+        let result = WhisperKitEngine.crossCandidateAnalysis(
+            polishText: "Hello world.",
+            englishText: "Hello world."
+        )
+        XCTAssertFalse(result.isTranslationPair)
+        XCTAssertTrue(result.isSameContent)
+    }
+
+    func test_crossCandidateAnalysis_sameContentWithDiacritics() {
+        let result = WhisperKitEngine.crossCandidateAnalysis(
+            polishText: "Jihed córka",
+            englishText: "Jihed corka"
+        )
+        XCTAssertFalse(result.isTranslationPair)
+        XCTAssertTrue(result.isSameContent)
+    }
 }

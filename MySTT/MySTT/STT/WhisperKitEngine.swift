@@ -323,10 +323,63 @@ class WhisperKitEngine: STTEngineProtocol {
         englishAverageCompressionRatio: Double = 1,
         detectedSpokenLanguage: Language? = nil
     ) -> Language {
-        let spokenLanguagePriorSlack = 7.0
+        let polishLang = PostProcessor.detectTextLanguage(polishText)
+        let englishLang = PostProcessor.detectTextLanguage(englishText)
+        let crossCheck = crossCandidateAnalysis(polishText: polishText, englishText: englishText)
+
+        // When both candidates produced text in their respective forced languages but
+        // with very different words, one is a genuine transcription and the other is
+        // Whisper translating the speech into the forced language.
+        if crossCheck.isTranslationPair {
+            if polishLang == .polish && englishLang == .english {
+                if detectedSpokenLanguage == .english {
+                    print("[WhisperKit] Cross-candidate: translation pair, audio prior = English → choosing English")
+                    return .english
+                }
+                if detectedSpokenLanguage == .polish {
+                    print("[WhisperKit] Cross-candidate: translation pair, audio prior = Polish → choosing Polish")
+                    return .polish
+                }
+                // No audio prior. Use Polish diacritics as a decisive signal:
+                // Whisper only generates ą/ć/ę/ł/ń/ś/ź/ż when the audio contains
+                // genuine Polish phonemes. English speech forced through Polish decode
+                // produces ASCII-only transliterations like "Hej" not "Hęj".
+                let polishDiacritics: Set<Character> = ["ą", "ć", "ę", "ł", "ń", "ś", "ź", "ż"]
+                let hasDiacritics = polishText.lowercased().contains(where: { polishDiacritics.contains($0) })
+                if hasDiacritics {
+                    print("[WhisperKit] Cross-candidate: translation pair, Polish diacritics present → choosing Polish")
+                    return .polish
+                }
+                // No diacritics in Polish candidate. Use logprob gap: a very poor Polish
+                // logprob with confident English suggests English audio transliterated to Polish.
+                let logProbGap = englishAverageLogProb - polishAverageLogProb
+                if polishAverageLogProb < -0.9 && logProbGap > 0.5 {
+                    print("[WhisperKit] Cross-candidate: translation pair, Polish logprob very poor (\(String(format: "%.2f", polishAverageLogProb))) → likely English speech")
+                    return .english
+                }
+                print("[WhisperKit] Cross-candidate: translation pair, no clear audio prior → choosing Polish")
+                return .polish
+            }
+            if polishLang == .english && englishLang == .english {
+                print("[WhisperKit] Cross-candidate: both candidates are English → choosing English")
+                return .english
+            }
+            if polishLang == .unknown && englishLang == .english {
+                print("[WhisperKit] Cross-candidate: Polish candidate ambiguous, English clear → choosing English")
+                return .english
+            }
+        }
+
+        // If both candidates produced essentially the same text, trust the text language
+        if crossCheck.isSameContent {
+            if polishLang == .polish { return .polish }
+            if englishLang == .english { return .english }
+        }
+
         let polishScore = candidateScore(
             text: polishText,
             targetLanguage: .polish,
+            otherText: englishText,
             averageLogProb: polishAverageLogProb,
             averageNoSpeechProb: polishAverageNoSpeechProb,
             averageCompressionRatio: polishAverageCompressionRatio
@@ -334,12 +387,16 @@ class WhisperKitEngine: STTEngineProtocol {
         let englishScore = candidateScore(
             text: englishText,
             targetLanguage: .english,
+            otherText: polishText,
             averageLogProb: englishAverageLogProb,
             averageNoSpeechProb: englishAverageNoSpeechProb,
             averageCompressionRatio: englishAverageCompressionRatio
         )
 
+        print("[WhisperKit] Scores: polish=\(String(format: "%.2f", polishScore)) english=\(String(format: "%.2f", englishScore)) spoken=\(detectedSpokenLanguage?.displayName ?? "nil")")
+
         if let detectedSpokenLanguage {
+            let spokenLanguagePriorSlack = 7.0
             switch detectedSpokenLanguage {
             case .polish:
                 if isValidPolishOrEnglish(polishText), polishScore >= englishScore - spokenLanguagePriorSlack {
@@ -357,9 +414,45 @@ class WhisperKitEngine: STTEngineProtocol {
         return englishScore > polishScore ? .english : .polish
     }
 
+    struct CrossCandidateResult {
+        let wordOverlap: Double
+        let isTranslationPair: Bool
+        let isSameContent: Bool
+    }
+
+    static func crossCandidateAnalysis(polishText: String, englishText: String) -> CrossCandidateResult {
+        let polishWords = Set(polishText.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty })
+        let englishWords = Set(englishText.lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            .filter { !$0.isEmpty })
+
+        guard !polishWords.isEmpty, !englishWords.isEmpty else {
+            return CrossCandidateResult(wordOverlap: 0, isTranslationPair: false, isSameContent: false)
+        }
+
+        let overlap = polishWords.intersection(englishWords).count
+        let maxCount = max(polishWords.count, englishWords.count)
+        let overlapRatio = Double(overlap) / Double(maxCount)
+
+        let foldedPolish = Set(polishWords.map { $0.folding(options: .diacriticInsensitive, locale: .current) })
+        let foldedEnglish = Set(englishWords.map { $0.folding(options: .diacriticInsensitive, locale: .current) })
+        let foldedOverlap = foldedPolish.intersection(foldedEnglish).count
+        let foldedOverlapRatio = Double(foldedOverlap) / Double(maxCount)
+
+        let isTranslation = overlapRatio < 0.35 && maxCount >= 2
+        let isSame = foldedOverlapRatio > 0.8
+
+        return CrossCandidateResult(wordOverlap: overlapRatio, isTranslationPair: isTranslation, isSameContent: isSame)
+    }
+
     static func candidateScore(
         text: String,
         targetLanguage: Language,
+        otherText: String = "",
         averageLogProb: Double = 0,
         averageNoSpeechProb: Double = 0,
         averageCompressionRatio: Double = 1
@@ -369,7 +462,9 @@ class WhisperKitEngine: STTEngineProtocol {
         let detectedLanguage = PostProcessor.detectTextLanguage(text)
         let languageScores = PostProcessor.languageScores(text)
         let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }.count
-        var score = averageLogProb * 8.0 + Double(min(words, 12)) * 0.1
+
+        // Reduce logprob weight to prevent English model bias from dominating
+        var score = averageLogProb * 4.0 + Double(min(words, 12)) * 0.1
 
         if !isValidPolishOrEnglish(text) { score -= 100 }
         score -= averageNoSpeechProb * 8.0
@@ -377,17 +472,30 @@ class WhisperKitEngine: STTEngineProtocol {
             score -= (averageCompressionRatio - 1.8) * 2.5
         }
 
+        // Increase weight of text-level language heuristics
         switch targetLanguage {
         case .english:
-            score += Double(languageScores.english - languageScores.polish) * 1.5
-            if detectedLanguage == .english { score += 4 }
-            if detectedLanguage == .polish { score -= 5 }
+            score += Double(languageScores.english - languageScores.polish) * 2.5
+            if detectedLanguage == .english { score += 6 }
+            if detectedLanguage == .polish { score -= 8 }
         case .polish:
-            score += Double(languageScores.polish - languageScores.english) * 1.5
-            if detectedLanguage == .polish { score += 4 }
-            if detectedLanguage == .english { score -= 5 }
+            score += Double(languageScores.polish - languageScores.english) * 2.5
+            if detectedLanguage == .polish { score += 6 }
+            if detectedLanguage == .english { score -= 8 }
         case .unknown:
             break
+        }
+
+        // Cross-candidate penalty: if this candidate's text is detected as the wrong language,
+        // apply a strong penalty (the other decode likely captured the actual speech)
+        if !otherText.isEmpty {
+            let otherLang = PostProcessor.detectTextLanguage(otherText)
+            if targetLanguage == .english && detectedLanguage != .english && otherLang == .polish {
+                score -= 6
+            }
+            if targetLanguage == .polish && detectedLanguage != .polish && otherLang == .english {
+                score -= 6
+            }
         }
 
         return score

@@ -820,7 +820,7 @@ class AppState: ObservableObject {
             )
             statusMessage = "Recovered undelivered dictation to clipboard"
             presentDeliveryRecoveryAlert(
-                message: "Recovered undelivered text from \(record.createdAt.formatted(date: .abbreviated, time: .shortened)). It is copied to the clipboard."
+                message: "Recovered undelivered text from \(record.createdAt.formatted(date: .abbreviated, time: .standard)). It is copied to the clipboard."
             )
         } catch {
             print("[AppState] Failed to recover pending dictation: \(error)")
