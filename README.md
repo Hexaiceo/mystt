@@ -10,7 +10,7 @@ MySTT is a privacy-focused, offline-first speech-to-text application for macOS. 
 
 - **Fully Offline STT** — Uses [WhisperKit](https://github.com/argmaxinc/WhisperKit) with CoreML for on-device speech recognition. No internet required.
 - **Robust Bilingual STT** — Polish and English are decoded explicitly and scored against each other to avoid short-English mistranscriptions.
-- **LLM Text Correction** — Optional grammar/punctuation correction via local LLM (LM Studio, Bielik-11B) or cloud APIs (Groq, OpenAI).
+- **LLM Text Correction** — Optional grammar/punctuation correction via local LLMs (LM Studio, MLX, Ollama) or cloud APIs (Groq, OpenAI).
 - **Transcript-Safe LLM Correction** — The LLM is instructed to normalize dictated text only, never answer it, and unsafe answer-like, translated, or short semantic rewrite outputs are rejected.
 - **4-Stage Post-Processing** — Dictionary pre-processing → punctuation correction → guarded LLM normalization → dictionary post-processing.
 - **Adaptive Status Overlay** — The bottom recording/processing overlay resizes to fit short live states like `STT` and `LLM` without clipping.
@@ -77,6 +77,7 @@ The `Scripts/build_and_install.sh` script:
 |----------|------|-------|-------|
 | **LM Studio** (default) | Local | qwen3-4b-2507 | Runs locally via LM Studio, fully offline |
 | MLX via LM Studio | Local | mlx-community/Qwen2.5-7B-Instruct-4bit | Uses LM Studio's OpenAI-compatible API |
+| Ollama | Local | qwen2.5:3b | Uses Ollama on `127.0.0.1:11434`; host-only and native `/api` URLs are normalized automatically |
 | Groq | Cloud | llama-3.1-8b-instant | Requires API key |
 | OpenAI | Cloud | gpt-4o-mini | Requires API key |
 
@@ -144,7 +145,7 @@ All permissions are requested on first launch. If something stops working after 
 - **API keys are not stored in the repository** — cloud provider keys are stored in the macOS Data Protection Keychain via `KeychainManager`
 - **No hardcoded secrets were found in tracked source files** during the publish check for this update
 - **Public endpoints in the code are expected configuration** — they are service URLs or localhost defaults, not credentials
-- **Local-first by default** — WhisperKit STT works fully offline, and local LM Studio / MLX flows do not require sending dictated text to a cloud service
+- **Local-first by default** — WhisperKit STT works fully offline, and local LM Studio / MLX / Ollama flows do not require sending dictated text to a cloud service
 
 ## Project Structure
 
@@ -175,7 +176,7 @@ MySTT/
 | My iPhone microphone keeps taking over | Current builds prefer the built-in MacBook mic over Continuity/iPhone microphones and no longer auto-switch away from the active mic just because a new USB/monitor device appeared. If needed, reselect the built-in mic in MySTT Settings. |
 | Paste not working | Check **System Settings → Privacy → Automation** — enable System Events for MySTT. |
 | Model takes long to load | First launch compiles CoreML models (~2 min). Subsequent launches use cached compilation. |
-| LLM shows "Not available" | Ensure LM Studio is running with a model loaded, or add a cloud API key in Settings. |
+| LLM shows "Not available" | Ensure your selected local provider is running with at least one model available (LM Studio loaded model, or `ollama pull qwen2.5:3b`), or add a cloud API key in Settings. |
 | LLM returns an answer instead of cleaned text | Current builds reject assistant-style responses and fall back to the pre-LLM transcript instead of pasting the answer. |
 | Short Polish words get "translated" by the LLM | Current builds preserve very short utterances unless the change is only casing, punctuation, diacritics, or a minor typo fix, so `no` stays `no`. |
 | `build_and_install.sh` installs an older app after you moved the repo | Delete `MySTT/.build` and rerun the script. Current builds now fail fast instead of silently reusing an old binary when Swift's module cache points at a previous path. |

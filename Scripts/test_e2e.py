@@ -178,6 +178,8 @@ try:
     test("sttProvider field", "sttProvider" in content)
     test("llmProvider field", "llmProvider" in content)
     test("lmStudioModelName field", "lmStudioModelName" in content)
+    test("ollamaModelName field", "ollamaModelName" in content)
+    test("ollamaURL field", "ollamaURL" in content)
     test("enableLLMCorrection field", "enableLLMCorrection" in content)
     test("enableDictionary field", "enableDictionary" in content)
     test("hotkeyKeyCode field", "hotkeyKeyCode" in content)
@@ -185,6 +187,7 @@ try:
     test("Fn key default (0x3F)", "0x3F" in content)
     test("Bielik model default", "bielik" in content)
     test("LM Studio default provider", "localLMStudio" in content)
+    test("Ollama provider supported", "ollama" in content)
     test("Whisper model empty/auto (NOT large-v3-turbo)", "large-v3-turbo" not in content, "BUG: hardcoded 'large-v3-turbo' still present!")
     test("Settings window (NSPanel)", True)  # Verified by code review
 except Exception as e:

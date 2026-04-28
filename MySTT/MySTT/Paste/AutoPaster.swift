@@ -19,6 +19,7 @@ struct TargetAppSnapshot: Equatable, Codable, Sendable {
 }
 
 enum PasteDeliveryMethod: String, Codable, Equatable, Sendable {
+    case selectedTextReplace
     case directValueInsert
     case focusedElementPaste
     case systemEventsPaste
@@ -80,12 +81,25 @@ private struct CapturedTargetContext {
     let focusedElement: AXUIElement?
     let focusedWindow: AXUIElement?
     let focusedElementRole: String?
-    let focusedElementFrame: CGRect?
+    let focusedElementSelectedRange: CFRange?
 }
 
 private struct AccessibilityTextState {
     let value: String
     let selectedRange: CFRange?
+}
+
+private struct TextMutationExpectation {
+    let expectedValue: String
+    let replacement: String
+    let prefixContext: String
+    let suffixContext: String
+    let expectedCaretLocation: Int
+}
+
+private enum AccessibilityMutationAttempt {
+    case inserted(method: PasteDeliveryMethod, verified: Bool)
+    case continueWithPaste
 }
 
 class AutoPaster {
@@ -230,12 +244,18 @@ class AutoPaster {
                 continue
             }
 
-            if let element = context.focusedElement,
-               tryDirectInsert(text, into: element) {
-                return .inserted(method: .directValueInsert, verified: true)
-            }
-
             if let element = context.focusedElement {
+                switch deliverWithAccessibilityMutation(
+                    text,
+                    into: element,
+                    role: context.focusedElementRole
+                ) {
+                case let .inserted(method, verified):
+                    return .inserted(method: method, verified: verified)
+                case .continueWithPaste:
+                    break
+                }
+
                 let beforeState = textState(of: element)
                 simulatePaste()
                 try? await Task.sleep(nanoseconds: 220_000_000)
@@ -246,6 +266,34 @@ class AutoPaster {
         }
 
         return .clipboardOnly(reason: "Target field lost focus or does not expose an editable value")
+    }
+
+    private func deliverWithAccessibilityMutation(
+        _ text: String,
+        into element: AXUIElement,
+        role: String?
+    ) -> AccessibilityMutationAttempt {
+        let beforeState = textState(of: element)
+        let supportsSelectedTextReplacement = isAttributeSettable(
+            kAXSelectedTextAttribute as CFString,
+            on: element
+        )
+
+        if Self.shouldPreferSelectedTextReplacement(
+            role: role,
+            supportsSelectedTextReplacement: supportsSelectedTextReplacement
+        ) {
+            return trySelectedTextReplacement(text, into: element, beforeState: beforeState)
+        }
+
+        if Self.shouldUseDirectValueInsert(
+            role: role,
+            supportsSelectedTextReplacement: supportsSelectedTextReplacement
+        ) {
+            return tryDirectInsert(text, into: element, beforeState: beforeState)
+        }
+
+        return .continueWithPaste
     }
 
     private func preferredDeliveryContexts(for app: NSRunningApplication) -> [CapturedTargetContext] {
@@ -277,10 +325,14 @@ class AutoPaster {
         let focusedWindow = copyAXElementAttribute(kAXFocusedWindowAttribute as CFString, from: appElement)
         let role = focusedElement.flatMap { copyStringAttribute(kAXRoleAttribute as CFString, from: $0) }
         let frame = focusedElement.flatMap(frame(of:))
+        let selectedRange = focusedElement.flatMap(copySelectedRange(from:))
 
         if let role {
             let frameDescription = frame.map { NSStringFromRect(NSRect(origin: $0.origin, size: $0.size)) } ?? "unknown"
-            log("Captured focused element role=\(role) frame=\(frameDescription)")
+            log(
+                "Captured focused element role=\(role) frame=\(frameDescription) " +
+                "selectedRange=\(Self.describe(range: selectedRange))"
+            )
         }
 
         return CapturedTargetContext(
@@ -288,7 +340,7 @@ class AutoPaster {
             focusedElement: focusedElement,
             focusedWindow: focusedWindow,
             focusedElementRole: role,
-            focusedElementFrame: frame
+            focusedElementSelectedRange: selectedRange
         )
     }
 
@@ -307,11 +359,17 @@ class AutoPaster {
 
         guard let element = context.focusedElement else { return false }
 
-        _ = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        let focusStatus = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if focusStatus != .success {
+            log("Failed to restore AX focus with status \(focusStatus.rawValue)")
+        }
 
-        if let frame = context.focusedElementFrame, Self.isUsableFrame(frame) {
-            click(frame: frame)
-            try? await Task.sleep(nanoseconds: 120_000_000)
+        var restoredSelection = false
+        if let selectedRange = context.focusedElementSelectedRange {
+            restoredSelection = restoreSelectedRange(selectedRange, on: element)
+            if restoredSelection {
+                log("Restored selection range to \(Self.describe(range: selectedRange))")
+            }
         }
 
         let currentFocusedElement = copyAXElementAttribute(
@@ -319,20 +377,74 @@ class AutoPaster {
             from: AXUIElementCreateApplication(app.processIdentifier)
         )
 
-        return currentFocusedElement.map { CFEqual($0, element) } ?? false
-    }
-
-    private func tryDirectInsert(_ text: String, into element: AXUIElement) -> Bool {
-        guard isAttributeSettable(kAXValueAttribute as CFString, on: element),
-              let beforeState = textState(of: element) else {
-            return false
+        if currentFocusedElement.map({ CFEqual($0, element) }) ?? false {
+            return true
         }
 
-        let insertionRange = normalizedRange(
+        return restoredSelection || focusStatus == .success
+    }
+
+    private func trySelectedTextReplacement(
+        _ text: String,
+        into element: AXUIElement,
+        beforeState: AccessibilityTextState?
+    ) -> AccessibilityMutationAttempt {
+        guard isAttributeSettable(kAXSelectedTextAttribute as CFString, on: element) else {
+            return .continueWithPaste
+        }
+
+        let setStatus = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextAttribute as CFString,
+            text as CFTypeRef
+        )
+        guard setStatus == .success else {
+            log("Selected-text replacement failed with AX status \(setStatus.rawValue)")
+            return .continueWithPaste
+        }
+
+        guard let beforeState else {
+            return .inserted(method: .selectedTextReplace, verified: false)
+        }
+
+        guard let afterState = textState(of: element) else {
+            return .inserted(method: .selectedTextReplace, verified: false)
+        }
+
+        if Self.mutationMatches(
+            beforeValue: beforeState.value,
+            beforeRange: beforeState.selectedRange,
+            afterValue: afterState.value,
+            afterRange: afterState.selectedRange,
+            replacement: text
+        ) {
+            return .inserted(method: .selectedTextReplace, verified: true)
+        }
+
+        if Self.normalizedText(afterState.value) != Self.normalizedText(beforeState.value) {
+            log("Selected-text replacement changed the field but could not be fully verified")
+            return .inserted(method: .selectedTextReplace, verified: false)
+        }
+
+        log("Selected-text replacement reported success but text did not change")
+        return .continueWithPaste
+    }
+
+    private func tryDirectInsert(
+        _ text: String,
+        into element: AXUIElement,
+        beforeState: AccessibilityTextState?
+    ) -> AccessibilityMutationAttempt {
+        guard isAttributeSettable(kAXValueAttribute as CFString, on: element),
+              let beforeState else {
+            return .continueWithPaste
+        }
+
+        let insertionRange = Self.normalizedRange(
             beforeState.selectedRange,
             stringLength: (beforeState.value as NSString).length
         )
-        guard let insertionRange else { return false }
+        guard let insertionRange else { return .continueWithPaste }
 
         let newValue = (beforeState.value as NSString).replacingCharacters(
             in: NSRange(location: insertionRange.location, length: insertionRange.length),
@@ -346,7 +458,7 @@ class AutoPaster {
         )
         guard setStatus == .success else {
             log("Direct insert failed with AX status \(setStatus.rawValue)")
-            return false
+            return .continueWithPaste
         }
 
         let caretLocation = insertionRange.location + (text as NSString).length
@@ -359,12 +471,27 @@ class AutoPaster {
             )
         }
 
-        guard let afterState = textState(of: element) else { return false }
-        let succeeded = afterState.value == newValue
-        if !succeeded {
-            log("Direct insert could not be verified")
+        guard let afterState = textState(of: element) else {
+            return .inserted(method: .directValueInsert, verified: false)
         }
-        return succeeded
+
+        if Self.mutationMatches(
+            beforeValue: beforeState.value,
+            beforeRange: beforeState.selectedRange,
+            afterValue: afterState.value,
+            afterRange: afterState.selectedRange,
+            replacement: text
+        ) {
+            return .inserted(method: .directValueInsert, verified: true)
+        }
+
+        if Self.normalizedText(afterState.value) != Self.normalizedText(beforeState.value) {
+            log("Direct insert changed the field but could not be fully verified")
+            return .inserted(method: .directValueInsert, verified: false)
+        }
+
+        log("Direct insert reported success but text did not change")
+        return .continueWithPaste
     }
 
     private func verifyPaste(
@@ -420,7 +547,102 @@ class AutoPaster {
         return success ? range : nil
     }
 
-    private func normalizedRange(_ range: CFRange?, stringLength: Int) -> CFRange? {
+    private func restoreSelectedRange(_ range: CFRange, on element: AXUIElement) -> Bool {
+        guard isAttributeSettable(kAXSelectedTextRangeAttribute as CFString, on: element) else {
+            return false
+        }
+
+        let stringLength = copyStringAttribute(kAXValueAttribute as CFString, from: element)
+            .map { ($0 as NSString).length }
+            ?? Int.max
+        guard let normalizedRange = Self.normalizedRange(range, stringLength: stringLength) else {
+            log("Skipping selection restore because range is out of bounds")
+            return false
+        }
+
+        var mutableRange = normalizedRange
+        guard let rangeValue = AXValueCreate(.cfRange, &mutableRange) else {
+            return false
+        }
+
+        let status = AXUIElementSetAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            rangeValue
+        )
+        guard status == .success else {
+            log("Restoring selected-text range failed with AX status \(status.rawValue)")
+            return false
+        }
+
+        guard let afterRange = copySelectedRange(from: element) else {
+            return true
+        }
+
+        return Self.rangesEqual(afterRange, normalizedRange)
+    }
+
+    static func shouldPreferSelectedTextReplacement(
+        role: String?,
+        supportsSelectedTextReplacement: Bool
+    ) -> Bool {
+        supportsSelectedTextReplacement
+    }
+
+    static func shouldUseDirectValueInsert(
+        role: String?,
+        supportsSelectedTextReplacement: Bool
+    ) -> Bool {
+        guard !supportsSelectedTextReplacement, let role else { return false }
+        return role == kAXTextFieldRole as String || role == kAXComboBoxRole as String
+    }
+
+    static func mutationMatches(
+        beforeValue: String,
+        beforeRange: CFRange?,
+        afterValue: String,
+        afterRange: CFRange?,
+        replacement: String
+    ) -> Bool {
+        guard let insertionRange = normalizedRange(
+            beforeRange,
+            stringLength: (beforeValue as NSString).length
+        ),
+        let expectation = mutationExpectation(
+            beforeValue: beforeValue,
+            insertionRange: insertionRange,
+            replacement: replacement
+        ) else {
+            return false
+        }
+
+        if normalizedText(afterValue) == normalizedText(expectation.expectedValue) {
+            return true
+        }
+
+        let normalizedAfter = normalizedText(afterValue)
+        let normalizedPrefix = normalizedText(expectation.prefixContext)
+        let normalizedSuffix = normalizedText(expectation.suffixContext)
+        let normalizedReplacement = normalizedText(replacement)
+
+        if !normalizedReplacement.isEmpty {
+            let anchored = normalizedPrefix + normalizedReplacement + normalizedSuffix
+            if !anchored.isEmpty && normalizedAfter.contains(anchored) {
+                return true
+            }
+        }
+
+        guard normalizedText(afterValue) != normalizedText(beforeValue),
+              let afterRange = normalizedRange(afterRange, stringLength: (afterValue as NSString).length) else {
+            return false
+        }
+
+        return afterRange.location == expectation.expectedCaretLocation
+            && afterRange.length == 0
+            && normalizedAfter.contains(normalizedReplacement)
+    }
+
+    static func normalizedRange(_ range: CFRange?, stringLength: Int) -> CFRange? {
         guard stringLength >= 0 else { return nil }
         guard let range else {
             return stringLength == 0 ? CFRange(location: 0, length: 0) : nil
@@ -435,6 +657,47 @@ class AutoPaster {
         }
 
         return range
+    }
+
+    private static func mutationExpectation(
+        beforeValue: String,
+        insertionRange: CFRange,
+        replacement: String
+    ) -> TextMutationExpectation? {
+        let stringLength = (beforeValue as NSString).length
+        guard let insertionRange = normalizedRange(insertionRange, stringLength: stringLength) else {
+            return nil
+        }
+
+        let nsValue = beforeValue as NSString
+        let range = NSRange(location: insertionRange.location, length: insertionRange.length)
+        let expectedValue = nsValue.replacingCharacters(in: range, with: replacement)
+
+        let prefixRange = NSRange(location: max(0, insertionRange.location - 24), length: min(24, insertionRange.location))
+        let suffixStart = insertionRange.location + insertionRange.length
+        let suffixRange = NSRange(location: suffixStart, length: min(24, stringLength - suffixStart))
+
+        return TextMutationExpectation(
+            expectedValue: expectedValue,
+            replacement: replacement,
+            prefixContext: nsValue.substring(with: prefixRange),
+            suffixContext: nsValue.substring(with: suffixRange),
+            expectedCaretLocation: insertionRange.location + (replacement as NSString).length
+        )
+    }
+
+    static func normalizedText(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    static func describe(range: CFRange?) -> String {
+        guard let range else { return "nil" }
+        return "{location=\(range.location), length=\(range.length)}"
+    }
+
+    static func rangesEqual(_ lhs: CFRange, _ rhs: CFRange) -> Bool {
+        lhs.location == rhs.location && lhs.length == rhs.length
     }
 
     private func copyStringAttribute(_ attribute: CFString, from element: AXUIElement) -> String? {
@@ -491,36 +754,6 @@ class AutoPaster {
         var settable: DarwinBoolean = false
         let status = AXUIElementIsAttributeSettable(element, attribute, &settable)
         return status == .success && settable.boolValue
-    }
-
-    private func click(frame: CGRect) {
-        let point = CGPoint(x: frame.midX, y: frame.midY)
-        let source = CGEventSource(stateID: .hidSystemState)
-        guard let mouseDown = CGEvent(
-            mouseEventSource: source,
-            mouseType: .leftMouseDown,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        ),
-        let mouseUp = CGEvent(
-            mouseEventSource: source,
-            mouseType: .leftMouseUp,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        ) else {
-            log("Could not create mouse click events")
-            return
-        }
-
-        mouseDown.post(tap: .cgSessionEventTap)
-        usleep(30_000)
-        mouseUp.post(tap: .cgSessionEventTap)
-    }
-
-    private static func isUsableFrame(_ frame: CGRect) -> Bool {
-        frame.width > 4 && frame.height > 4 &&
-        frame.origin.x.isFinite && frame.origin.y.isFinite &&
-        frame.size.width.isFinite && frame.size.height.isFinite
     }
 
     private static func contextsReferToSameElement(
