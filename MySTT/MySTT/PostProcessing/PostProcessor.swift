@@ -82,6 +82,8 @@ class PostProcessor: PostProcessorProtocol {
                             print("[PostProcessor] LLM CHANGED LANGUAGE (\(expectedLanguage.displayName) → \(outputLang.displayName)) — discarding")
                         } else if Self.isLikelyTranslation(input: textBeforeLLM, output: restoredResult, expectedLanguage: expectedLanguage) {
                             print("[PostProcessor] LLM likely translated text — discarding")
+                        } else if Self.hasLanguageScoreDrift(input: textBeforeLLM, output: restoredResult, expectedLanguage: expectedLanguage) {
+                            print("[PostProcessor] LLM drifted language scores away from \(expectedLanguage.displayName) — discarding")
                         } else {
                             text = restoredResult
                         }
@@ -280,6 +282,33 @@ class PostProcessor: PostProcessorProtocol {
         return false
     }
 
+
+    /// Detect if LLM shifted language scores away from the expected language.
+    /// Catches subtle translations where detectTextLanguage returns .unknown for the output
+    /// but the score balance shifted toward the wrong language.
+    static func hasLanguageScoreDrift(input: String, output: String, expectedLanguage: Language) -> Bool {
+        guard expectedLanguage != .unknown else { return false }
+
+        let inputScores = languageScores(input)
+        let outputScores = languageScores(output)
+
+        switch expectedLanguage {
+        case .english:
+            let polishGain = outputScores.polish - inputScores.polish
+            if polishGain >= 3 && outputScores.polish > outputScores.english {
+                return true
+            }
+        case .polish:
+            let englishGain = outputScores.english - inputScores.english
+            if englishGain >= 3 && outputScores.english > outputScores.polish {
+                return true
+            }
+        case .unknown:
+            break
+        }
+
+        return false
+    }
 
     /// Check if LLM output looks like a translation (very different words but similar length)
     static func isLikelyTranslation(input: String, output: String, expectedLanguage: Language = .unknown) -> Bool {

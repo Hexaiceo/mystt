@@ -429,6 +429,10 @@ class AppState: ObservableObject {
             var finalText = sttResult.text
             print("[Pipeline] STT in \(String(format: "%.1f", sttTime))s → whisper=[\(sttResult.language.displayName)] heuristic=[\(heuristicLang.displayName)] → using [\(detectedLanguage.displayName)] \(finalText.prefix(80))")
 
+            if detectedLanguage == .unknown {
+                statusMessage = "Language not recognized (not English, not Polish)"
+            }
+
             // Step 2: LLM correction
             try Task.checkCancellation()
             statusMessage = "Correcting text..."

@@ -24,11 +24,19 @@ struct MenuBarView: View {
                     .foregroundColor(.secondary)
 
                 HStack {
-                    Text("Language: \(detectedLanguage)")
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.accentColor.opacity(0.2)))
+                    if appState.detectedLanguage == .unknown {
+                        Label("Language not recognized", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.orange.opacity(0.3)))
+                    } else {
+                        Text("Language: \(detectedLanguage)")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.2)))
+                    }
                 }
             }
 

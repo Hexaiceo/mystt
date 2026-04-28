@@ -262,6 +262,15 @@ class AutoPaster {
                 if verifyPaste(into: element, before: beforeState, expectedText: text) {
                     return .inserted(method: .focusedElementPaste, verified: true)
                 }
+
+                // simulatePaste() already sent Cmd+V — do NOT continue the loop
+                // or fall through to System Events, as that would paste again.
+                log("simulatePaste sent but could not verify — returning to prevent double paste")
+                return .inserted(
+                    method: .focusedElementPaste,
+                    verified: false,
+                    failureReason: "Paste sent via CGEvent but insertion could not be verified"
+                )
             }
         }
 
