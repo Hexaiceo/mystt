@@ -497,6 +497,103 @@ final class PipelineIntegrationTests: XCTestCase {
         XCTAssertEqual(mockLLM.callCount, 0)
     }
 
+    // MARK: - Test 21: LLM receives explicit language instruction for Polish
+
+    func test_pipeline_llmReceivesPolishLanguageInstruction() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Witaj świecie, jak się masz?"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let _ = try await processor.process("witaj swiecie jak sie masz", language: .polish)
+
+        let systemPrompt = LLMPromptBuilder.buildSystemPrompt(language: .polish, dictionaryTerms: "None")
+        XCTAssertTrue(systemPrompt.contains("Input language: POLISH"))
+        XCTAssertTrue(systemPrompt.contains("Output MUST be Polish"))
+        XCTAssertTrue(systemPrompt.contains("Do NOT output English"))
+    }
+
+    // MARK: - Test 22: LLM receives explicit language instruction for English
+
+    func test_pipeline_llmReceivesEnglishLanguageInstruction() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Hello world, how are you?"
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let _ = try await processor.process("hello world how are you", language: .english)
+
+        let systemPrompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
+        XCTAssertTrue(systemPrompt.contains("Input language: ENGLISH"))
+        XCTAssertTrue(systemPrompt.contains("Output MUST be English"))
+        XCTAssertTrue(systemPrompt.contains("Do NOT output Polish"))
+    }
+
+    // MARK: - Test 23: Polish sentence with English term stays mixed
+
+    func test_pipeline_preservesMixedLanguageText() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Użyj Kubernetes do wdrożenia."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("uzyj kubernetes do wdrozenia", language: .polish)
+
+        XCTAssertEqual(result, "Użyj Kubernetes do wdrożenia.")
+        XCTAssertEqual(mockLLM.lastReceivedLanguage, .polish)
+    }
+
+    // MARK: - Test 24: Longer Polish text translated to English is rejected
+
+    func test_pipeline_rejectsEnglishTranslationOfLongerPolishText() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "The application works very well now."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("aplikacja działa bardzo dobrze teraz", language: .polish)
+
+        XCTAssertEqual(result, "aplikacja działa bardzo dobrze teraz")
+    }
+
+    // MARK: - Test 25: Longer English text translated to Polish is rejected
+
+    func test_pipeline_rejectsPolishTranslationOfLongerEnglishText() async throws {
+        let mockLLM = MockLLMProvider()
+        mockLLM.mockResult = "Aplikacja działa bardzo dobrze teraz."
+
+        let processor = PostProcessor(
+            dictionaryEngine: nil,
+            punctuationCorrector: nil,
+            llmProvider: mockLLM,
+            settings: makeSettings(llm: true)
+        )
+
+        let result = try await processor.process("the application works very well now", language: .english)
+
+        XCTAssertEqual(result, "the application works very well now")
+    }
+
     func test_pipeline_skipsLLMForCommandLikeText() async throws {
         let mockLLM = MockLLMProvider()
         let settings = makeSettings(llm: true, dictionary: false)

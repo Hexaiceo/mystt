@@ -335,7 +335,9 @@ class AppState: ObservableObject {
         synchronizeHotkeyState(isActive: false)
         guard isRecording else { return }
 
-        stopPreviewLoop()
+        let previewToAwait = previewTask
+        previewTask?.cancel()
+        previewTask = nil
         let buffer = audioEngine.stopRecording()
         isRecording = false
         isProcessing = true
@@ -343,8 +345,8 @@ class AppState: ObservableObject {
         soundPlayer.playStopRecording()
         overlay.show(status: .processing)
 
-        // Run pipeline in cancellable Task
         processingTask = Task { @MainActor in
+            _ = await previewToAwait?.value
             await runPipeline(buffer: buffer)
         }
     }
@@ -540,6 +542,10 @@ class AppState: ObservableObject {
             .map { $0.trimmingCharacters(in: .punctuationCharacters) }
             .filter { !$0.isEmpty }
 
+        if Self.isKnownHallucinationContent(trimmedText, wordCount: words.count, confidence: result.confidence) {
+            return false
+        }
+
         if Self.isKnownWeakSignalHallucination(
             trimmedText,
             wordCount: words.count,
@@ -597,6 +603,34 @@ class AppState: ObservableObject {
             "thanks for watching",
             "napisy stworzone przez spolecznosc amara org",
             "subtitles by the amara org community"
+        ]
+
+        return hallucinations.contains(normalized)
+    }
+
+    private static func isKnownHallucinationContent(
+        _ text: String,
+        wordCount: Int,
+        confidence: Float
+    ) -> Bool {
+        guard wordCount <= 5 else { return false }
+        // Hallucinated phrases from Whisper training data have poor confidence.
+        // Genuinely spoken "thank you" scores above this threshold.
+        guard confidence < -0.35 else { return false }
+
+        let normalized = text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+
+        let hallucinations: Set<String> = [
+            "thank you",
+            "thank you for watching",
+            "thanks for watching",
+            "dziekuje",
+            "dziekuje za uwage",
+            "napisy stworzone przez spolecznosc amara org",
+            "subtitles by the amara org community",
+            "you",
         ]
 
         return hallucinations.contains(normalized)
@@ -841,24 +875,27 @@ class AppState: ObservableObject {
     private func startPreviewLoop() {
         stopPreviewLoop()
         guard let sttEngine else { return }
-        previewTask = Task { @MainActor [weak self] in
-            // Initial delay — let at least 1.5s of audio accumulate
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            while !Task.isCancelled, let self, self.isRecording {
-                guard let buffer = self.audioEngine.currentBuffer(),
+        previewTask = Task.detached { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            while !Task.isCancelled {
+                guard let self else { return }
+                let isStillRecording = await MainActor.run { self.isRecording }
+                guard isStillRecording else { return }
+
+                guard let buffer = await MainActor.run(body: { self.audioEngine.currentBuffer() }),
                       buffer.frameLength >= 16000 else {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                     continue
                 }
                 do {
                     let text = try await sttEngine.previewTranscribe(audioBuffer: buffer)
-                    if !Task.isCancelled, self.isRecording, !text.isEmpty {
-                        self.overlay.updatePreviewText(text)
+                    if !Task.isCancelled, !text.isEmpty {
+                        await MainActor.run { self.overlay.updatePreviewText(text) }
                     }
                 } catch {
                     print("[Preview] STT preview failed: \(error.localizedDescription)")
                 }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }

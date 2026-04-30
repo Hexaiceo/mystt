@@ -216,22 +216,22 @@ class WhisperKitEngine: STTEngineProtocol {
         let floats = audioBuffer.toFloatArray()
         guard floats.count >= 16000 else { return "" }
 
-        let detectedLang = await detectSpokenLanguage(from: floats, whisperKit: whisperKit)
-        let langCode = detectedLang == .polish ? "pl" : "en"
-
         let options = DecodingOptions(
             verbose: false,
             task: .transcribe,
-            language: langCode,
+            language: nil,
             temperature: 0.0,
+            temperatureFallbackCount: 0,
+            topK: 1,
             usePrefillPrompt: true,
-            usePrefillCache: false,
-            detectLanguage: false,
+            usePrefillCache: true,
+            detectLanguage: true,
             skipSpecialTokens: true,
             withoutTimestamps: true,
-            compressionRatioThreshold: 2.4,
-            logProbThreshold: -1.0,
-            noSpeechThreshold: 0.6
+            compressionRatioThreshold: nil,
+            logProbThreshold: nil,
+            firstTokenLogProbThreshold: nil,
+            noSpeechThreshold: nil
         )
 
         let results = try await whisperKit.transcribe(audioArray: floats, decodeOptions: options)
@@ -248,6 +248,7 @@ class WhisperKitEngine: STTEngineProtocol {
             task: .transcribe,
             language: language,
             temperature: 0.0,
+            temperatureFallbackCount: 2,
             usePrefillPrompt: true,
             usePrefillCache: false,
             detectLanguage: false,

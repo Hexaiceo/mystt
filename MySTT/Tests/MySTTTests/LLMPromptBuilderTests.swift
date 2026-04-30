@@ -7,14 +7,24 @@ final class LLMPromptBuilderTests: XCTestCase {
         XCTAssertTrue(prompt.lowercased().contains("punctuation") || prompt.lowercased().contains("stt"))
     }
 
-    func test_buildSystemPrompt_containsLanguage() {
-        let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
-        XCTAssertTrue(prompt.contains("English"))
+    func test_buildSystemPrompt_containsExplicitLanguageInstruction() {
+        let promptEn = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
+        let promptPl = LLMPromptBuilder.buildSystemPrompt(language: .polish, dictionaryTerms: "None")
+        let promptUnknown = LLMPromptBuilder.buildSystemPrompt(language: .unknown, dictionaryTerms: "None")
+        XCTAssertTrue(promptEn.contains("Input language: ENGLISH"))
+        XCTAssertTrue(promptEn.contains("Output in English"))
+        XCTAssertTrue(promptEn.contains("Preserve any Polish terms"))
+        XCTAssertTrue(promptPl.contains("Input language: POLISH"))
+        XCTAssertTrue(promptPl.contains("Output in Polish"))
+        XCTAssertTrue(promptPl.contains("Preserve any English terms"))
+        XCTAssertTrue(promptUnknown.contains("Detect the input language"))
+        XCTAssertTrue(promptEn.contains("Preserve the EXACT language"))
+        XCTAssertTrue(promptPl.contains("Preserve the EXACT language"))
     }
 
-    func test_buildSystemPrompt_containsPolish() {
-        let prompt = LLMPromptBuilder.buildSystemPrompt(language: .polish, dictionaryTerms: "None")
-        XCTAssertTrue(prompt.contains("Polish"))
+    func test_buildSystemPrompt_containsMixedLanguageClause() {
+        let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
+        XCTAssertTrue(prompt.contains("Mixed-language text"))
     }
 
     func test_buildSystemPrompt_containsDictionaryTerms() {
@@ -61,13 +71,13 @@ final class LLMPromptBuilderTests: XCTestCase {
     func test_buildSystemPrompt_withUserRules() {
         let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None", userRules: "Custom rule here")
         XCTAssertTrue(prompt.contains("Custom rule here"))
-        XCTAssertTrue(prompt.contains("Expected: English"))
+        XCTAssertTrue(prompt.contains("Preserve the EXACT language"))
     }
 
     func test_buildSystemPrompt_isCompact() {
         let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
         // Compact prompt should stay short for fast local inference.
-        XCTAssertLessThan(prompt.count, 400, "System prompt should stay compact for fast local inference")
+        XCTAssertLessThan(prompt.count, 550, "System prompt should stay compact for fast local inference")
     }
 
     func test_buildSystemPrompt_coreConstraintsFirst() {

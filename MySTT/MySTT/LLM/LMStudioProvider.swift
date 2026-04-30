@@ -9,7 +9,7 @@ class LMStudioProvider: LLMProviderProtocol {
     var providerName: String { "LM Studio" }
 
     init(
-        model: String = "bielik-11b-v3.0-instruct",
+        model: String = "qwen/qwen3-4b-2507",
         baseURL: String = "http://127.0.0.1:1234/v1",
         session: URLSession = .shared
     ) {

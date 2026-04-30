@@ -7,7 +7,7 @@ struct AppSettings: Codable, Equatable {
 
     var llmProvider: LLMProvider = .localLMStudio
     var mlxModelName: String = "mlx-community/Qwen2.5-3B-Instruct-4bit"
-    var lmStudioModelName: String = "bielik-11b-v3.0-instruct"
+    var lmStudioModelName: String = "qwen/qwen3-4b-2507"
     var lmStudioURL: String = "http://127.0.0.1:1234/v1"
     var ollamaModelName: String = "qwen2.5:3b"
     var ollamaURL: String = "http://127.0.0.1:11434"

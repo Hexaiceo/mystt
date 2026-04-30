@@ -46,7 +46,10 @@ class PostProcessor: PostProcessorProtocol {
             // Skip Polish-only LLMs (Bielik) for non-Polish text
             let isPolishLLM = llm.providerName.lowercased().contains("bielik") ||
                               (settings.llmProvider == .localLMStudio && settings.lmStudioModelName.lowercased().contains("bielik"))
-            let expectedLanguage = Self.resolvedProcessingLanguage(text, hint: language)
+            var expectedLanguage = Self.resolvedProcessingLanguage(text, hint: language)
+            if expectedLanguage == .unknown && language != .unknown {
+                expectedLanguage = language
+            }
             let llmDecision = Self.llmDecision(for: text)
 
             if isPolishLLM && expectedLanguage != .polish {
@@ -84,6 +87,8 @@ class PostProcessor: PostProcessorProtocol {
                             print("[PostProcessor] LLM likely translated text — discarding")
                         } else if Self.hasLanguageScoreDrift(input: textBeforeLLM, output: restoredResult, expectedLanguage: expectedLanguage) {
                             print("[PostProcessor] LLM drifted language scores away from \(expectedLanguage.displayName) — discarding")
+                        } else if Self.containsHallucinationArtifact(input: textBeforeLLM, output: restoredResult) {
+                            print("[PostProcessor] LLM introduced hallucination artifact — discarding")
                         } else {
                             text = restoredResult
                         }
@@ -132,7 +137,7 @@ class PostProcessor: PostProcessorProtocol {
         if detected != hint {
             let scores = languageScores(text)
             let margin = abs(scores.english - scores.polish)
-            if margin >= 4 { return detected }
+            if margin >= 6 { return detected }
             return hint
         }
         return detected
@@ -459,6 +464,22 @@ class PostProcessor: PostProcessorProtocol {
             }
         }
 
+        return false
+    }
+
+    static func containsHallucinationArtifact(input: String, output: String) -> Bool {
+        let inputFolded = input
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        let outputFolded = output
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+
+        let artifacts = ["thank you", "dziekuje", "thanks for watching", "dziekuje za uwage"]
+
+        for artifact in artifacts {
+            if outputFolded.contains(artifact) && !inputFolded.contains(artifact) {
+                return true
+            }
+        }
         return false
     }
 
