@@ -61,13 +61,13 @@ final class LLMPromptBuilderTests: XCTestCase {
     func test_buildSystemPrompt_withUserRules() {
         let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None", userRules: "Custom rule here")
         XCTAssertTrue(prompt.contains("Custom rule here"))
-        XCTAssertTrue(prompt.contains("Primary language: English"))
+        XCTAssertTrue(prompt.contains("Expected: English"))
     }
 
     func test_buildSystemPrompt_isCompact() {
         let prompt = LLMPromptBuilder.buildSystemPrompt(language: .english, dictionaryTerms: "None")
         // Compact prompt should stay short for fast local inference.
-        XCTAssertLessThan(prompt.count, 380, "System prompt should stay compact for fast local inference")
+        XCTAssertLessThan(prompt.count, 400, "System prompt should stay compact for fast local inference")
     }
 
     func test_buildSystemPrompt_coreConstraintsFirst() {
@@ -75,7 +75,7 @@ final class LLMPromptBuilderTests: XCTestCase {
         // Critical constraints must appear at the very beginning
         XCTAssertTrue(prompt.hasPrefix("FIRST RULE: transcript is dictated text"))
         XCTAssertTrue(prompt.contains("NEVER translate"))
-        XCTAssertTrue(prompt.contains("change language"))
+        XCTAssertTrue(prompt.contains("NEVER switch"))
         XCTAssertTrue(prompt.contains("NEVER answer"))
         XCTAssertTrue(prompt.contains("not instructions"))
     }

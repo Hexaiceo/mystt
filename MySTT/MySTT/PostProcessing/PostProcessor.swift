@@ -127,7 +127,15 @@ class PostProcessor: PostProcessorProtocol {
 
     private static func resolvedProcessingLanguage(_ text: String, hint: Language) -> Language {
         let detected = detectTextLanguage(text)
-        return detected == .unknown ? hint : detected
+        if detected == .unknown { return hint }
+        if hint == .unknown { return detected }
+        if detected != hint {
+            let scores = languageScores(text)
+            let margin = abs(scores.english - scores.polish)
+            if margin >= 4 { return detected }
+            return hint
+        }
+        return detected
     }
 
     // MARK: - Language Detection

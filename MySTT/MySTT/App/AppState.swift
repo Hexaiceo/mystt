@@ -463,7 +463,7 @@ class AppState: ObservableObject {
             if settings.autoPaste {
                 // Hide overlay BEFORE pasting so it doesn't steal focus
                 overlay.hide()
-                let pasteResult = await autoPaster.paste(finalText)
+                let pasteResult = await autoPaster.paste(finalText, useTypingMode: settings.useTypingMode)
                 await finalizeDictationRecord(id: dictationRecordID, with: pasteResult)
                 let handled = handlePasteResult(pasteResult, totalTime: totalTime)
                 shouldReportSuccess = !handled

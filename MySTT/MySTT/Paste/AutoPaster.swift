@@ -23,6 +23,7 @@ enum PasteDeliveryMethod: String, Codable, Equatable, Sendable {
     case directValueInsert
     case focusedElementPaste
     case systemEventsPaste
+    case menuPaste
     case clipboardOnly
     case none
 }
@@ -103,6 +104,16 @@ private enum AccessibilityMutationAttempt {
 }
 
 class AutoPaster {
+    private static let remoteDesktopBundleIDs: Set<String> = [
+        "com.apple.ScreenSharing",
+        "com.apple.screensharing.agent",
+        "com.microsoft.rdc.macos",
+        "com.citrix.XenAppViewer",
+        "com.vmware.horizon",
+        "com.realvnc.vncviewer",
+        "com.parallels.desktop.console",
+    ]
+
     private var targetApp: TargetAppSnapshot?
     private var targetContext: CapturedTargetContext?
     private var lastExternalApp: TargetAppSnapshot?
@@ -177,7 +188,7 @@ class AutoPaster {
         log("Captured target: \(targetApp?.localizedName ?? "nil") pid=\(targetApp?.processIdentifier ?? 0) bundle=\(targetApp?.bundleIdentifier ?? "nil")")
     }
 
-    func paste(_ text: String) async -> PasteDeliveryResult {
+    func paste(_ text: String, useTypingMode: Bool = false) async -> PasteDeliveryResult {
         log("paste() text=\(text.prefix(50))...")
         copyToClipboard(text)
 
@@ -187,8 +198,10 @@ class AutoPaster {
         }
 
         let appName = app.localizedName ?? ""
+        let isRemoteDesktop = app.bundleIdentifier.map { Self.remoteDesktopBundleIDs.contains($0) } ?? false
+        let shouldUseMenuPaste = useTypingMode || isRemoteDesktop
         let hasAccessibility = PermissionChecker.checkAccessibilityPermission()
-        log("Target: \(appName), AXTrusted=\(hasAccessibility)")
+        log("Target: \(appName), AXTrusted=\(hasAccessibility), menuPasteMode=\(shouldUseMenuPaste), isRemoteDesktop=\(isRemoteDesktop)")
 
         log("Activating \(appName.isEmpty ? "target app" : appName) via NSRunningApplication...")
         let activateOK = app.activate(options: [.activateAllWindows])
@@ -196,6 +209,19 @@ class AutoPaster {
 
         await waitForFrontmostApp(processIdentifier: app.processIdentifier)
         log("Frontmost: \(NSWorkspace.shared.frontmostApplication?.localizedName ?? "nil")")
+
+        if shouldUseMenuPaste {
+            log("Using menu-based paste for remote desktop / typing mode")
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if pasteViaMenuBar(app: app) {
+                return .inserted(
+                    method: .menuPaste,
+                    verified: false,
+                    failureReason: "Pasted via app Edit menu"
+                )
+            }
+            log("Menu paste failed, falling through to standard methods")
+        }
 
         if hasAccessibility {
             let accessibilityResult = await deliverWithAccessibility(text, to: app)
@@ -808,6 +834,68 @@ class AutoPaster {
         keyDown.post(tap: .cgSessionEventTap)
         usleep(80_000)
         keyUp.post(tap: .cgSessionEventTap)
+    }
+
+    private func pasteViaMenuBar(app: NSRunningApplication) -> Bool {
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+
+        var menuBarRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            appElement, kAXMenuBarAttribute as CFString, &menuBarRef
+        ) == .success else {
+            log("pasteViaMenuBar: cannot access menu bar")
+            return false
+        }
+        let menuBar = menuBarRef as! AXUIElement
+
+        var barItemsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            menuBar, kAXChildrenAttribute as CFString, &barItemsRef
+        ) == .success, let barItems = barItemsRef as? [AXUIElement] else {
+            log("pasteViaMenuBar: cannot list menu bar items")
+            return false
+        }
+
+        for barItem in barItems {
+            var submenusRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                barItem, kAXChildrenAttribute as CFString, &submenusRef
+            ) == .success,
+                  let submenus = submenusRef as? [AXUIElement],
+                  let submenu = submenus.first else { continue }
+
+            var itemsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(
+                submenu, kAXChildrenAttribute as CFString, &itemsRef
+            ) == .success, let items = itemsRef as? [AXUIElement] else { continue }
+
+            for item in items {
+                var cmdCharRef: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(
+                    item, "AXMenuItemCmdChar" as CFString, &cmdCharRef
+                ) == .success, let cmdChar = cmdCharRef as? String else { continue }
+
+                guard cmdChar.lowercased() == "v" else { continue }
+
+                var cmdModsRef: CFTypeRef?
+                if AXUIElementCopyAttributeValue(
+                    item, "AXMenuItemCmdModifiers" as CFString, &cmdModsRef
+                ) == .success, let mods = cmdModsRef as? Int, mods != 0 {
+                    continue
+                }
+
+                log("pasteViaMenuBar: found Paste menu item, clicking")
+                let status = AXUIElementPerformAction(item, kAXPressAction as CFString)
+                if status == .success {
+                    log("pasteViaMenuBar: success")
+                    return true
+                }
+                log("pasteViaMenuBar: AXPress failed with \(status.rawValue)")
+            }
+        }
+
+        log("pasteViaMenuBar: Paste menu item not found")
+        return false
     }
 
     // MARK: - Permission prompt

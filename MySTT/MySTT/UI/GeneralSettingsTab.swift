@@ -67,6 +67,7 @@ enum APIKeyProvider: String, CaseIterable, Identifiable {
 struct GeneralSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @AppStorage("autoPaste") private var autoPaste = true
+    @AppStorage("useTypingMode") private var useTypingMode = false
     @AppStorage("playSound") private var playSound = true
     @AppStorage("showNotification") private var showNotification = true
     @AppStorage("launchAtLogin") private var launchAtLogin = false
@@ -160,6 +161,8 @@ struct GeneralSettingsTab: View {
 
             Section("Behavior") {
                 Toggle("Auto-paste into active window", isOn: $autoPaste)
+                Toggle("Remote desktop paste mode", isOn: $useTypingMode)
+                    .help("Uses the app's Edit > Paste menu instead of simulated Cmd+V. Enable for remote desktop apps where normal paste doesn't work. Screen Sharing is detected automatically.")
                 Toggle("Play sounds", isOn: $playSound)
                 Toggle("Show notifications", isOn: $showNotification)
             }

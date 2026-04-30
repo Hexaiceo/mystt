@@ -357,8 +357,7 @@ class WhisperKitEngine: STTEngineProtocol {
                     print("[WhisperKit] Cross-candidate: translation pair, Polish logprob very poor (\(String(format: "%.2f", polishAverageLogProb))) → likely English speech")
                     return .english
                 }
-                print("[WhisperKit] Cross-candidate: translation pair, no clear audio prior → choosing Polish")
-                return .polish
+                print("[WhisperKit] Cross-candidate: translation pair, no clear signal → falling through to scoring")
             }
             if polishLang == .english && englishLang == .english {
                 print("[WhisperKit] Cross-candidate: both candidates are English → choosing English")

@@ -21,6 +21,7 @@ struct AppSettings: Codable, Equatable {
     var hotkeyKeyCode: UInt16 = 0x3F
     var hotkeyModifiers: UInt32 = 0
     var autoPaste: Bool = true
+    var useTypingMode: Bool = false
     var showNotification: Bool = true
     var playSound: Bool = true
     var launchAtLogin: Bool = false
@@ -81,6 +82,9 @@ struct AppSettings: Codable, Equatable {
         }
         if ud.object(forKey: "autoPaste") != nil {
             settings.autoPaste = ud.bool(forKey: "autoPaste")
+        }
+        if ud.object(forKey: "useTypingMode") != nil {
+            settings.useTypingMode = ud.bool(forKey: "useTypingMode")
         }
         if ud.object(forKey: "playSound") != nil {
             settings.playSound = ud.bool(forKey: "playSound")
