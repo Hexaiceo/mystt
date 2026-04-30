@@ -69,6 +69,7 @@ class AppState: ObservableObject {
 
     // Task handle for cancellation
     private var processingTask: Task<Void, Never>?
+    private var previewTask: Task<Void, Never>?
 
     init() {
         self.settings = AppSettings.load()
@@ -320,6 +321,7 @@ class AppState: ObservableObject {
             statusMessage = "Listening... (Fn=stop, ESC=cancel)"
             soundPlayer.playStartRecording()
             overlay.show(status: .listening)
+            startPreviewLoop()
         } catch {
             synchronizeHotkeyState(isActive: false)
             statusMessage = "Mic error: \(error.localizedDescription)"
@@ -333,6 +335,7 @@ class AppState: ObservableObject {
         synchronizeHotkeyState(isActive: false)
         guard isRecording else { return }
 
+        stopPreviewLoop()
         let buffer = audioEngine.stopRecording()
         isRecording = false
         isProcessing = true
@@ -602,6 +605,7 @@ class AppState: ObservableObject {
     // MARK: - Cancel (ESC key)
 
     func cancelEverything() {
+        stopPreviewLoop()
         if isRecording {
             _ = audioEngine.stopRecording()
             isRecording = false
@@ -663,6 +667,7 @@ class AppState: ObservableObject {
 
     func cleanup() {
         hotkeyManager.stop()
+        stopPreviewLoop()
         processingTask?.cancel()
         overlay.hide()
         if isRecording { _ = audioEngine.stopRecording() }
@@ -829,6 +834,38 @@ class AppState: ObservableObject {
         } catch {
             print("[AppState] Failed to recover pending dictation: \(error)")
         }
+    }
+
+    // MARK: - Live Preview
+
+    private func startPreviewLoop() {
+        stopPreviewLoop()
+        guard let sttEngine else { return }
+        previewTask = Task { @MainActor [weak self] in
+            // Initial delay — let at least 1.5s of audio accumulate
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            while !Task.isCancelled, let self, self.isRecording {
+                guard let buffer = self.audioEngine.currentBuffer(),
+                      buffer.frameLength >= 16000 else {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                    continue
+                }
+                do {
+                    let text = try await sttEngine.previewTranscribe(audioBuffer: buffer)
+                    if !Task.isCancelled, self.isRecording, !text.isEmpty {
+                        self.overlay.updatePreviewText(text)
+                    }
+                } catch {
+                    print("[Preview] STT preview failed: \(error.localizedDescription)")
+                }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    private func stopPreviewLoop() {
+        previewTask?.cancel()
+        previewTask = nil
     }
 
     private func presentDeliveryRecoveryAlert(message: String) {

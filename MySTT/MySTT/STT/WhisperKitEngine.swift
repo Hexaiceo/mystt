@@ -208,6 +208,36 @@ class WhisperKitEngine: STTEngineProtocol {
         }
     }
 
+    // MARK: - Preview (single-pass for live display)
+
+    func previewTranscribe(audioBuffer: AVAudioPCMBuffer) async throws -> String {
+        guard isReady, let whisperKit else { return "" }
+
+        let floats = audioBuffer.toFloatArray()
+        guard floats.count >= 16000 else { return "" }
+
+        let detectedLang = await detectSpokenLanguage(from: floats, whisperKit: whisperKit)
+        let langCode = detectedLang == .polish ? "pl" : "en"
+
+        let options = DecodingOptions(
+            verbose: false,
+            task: .transcribe,
+            language: langCode,
+            temperature: 0.0,
+            usePrefillPrompt: true,
+            usePrefillCache: false,
+            detectLanguage: false,
+            skipSpecialTokens: true,
+            withoutTimestamps: true,
+            compressionRatioThreshold: 2.4,
+            logProbThreshold: -1.0,
+            noSpeechThreshold: 0.6
+        )
+
+        let results = try await whisperKit.transcribe(audioArray: floats, decodeOptions: options)
+        return results.first?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
     // MARK: - Helpers
 
     private func transcribeWith(floats: [Float], language: String) async throws -> TranscriptionResult {

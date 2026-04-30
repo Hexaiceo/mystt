@@ -7,11 +7,15 @@ class RecordingOverlayWindow {
     private var window: NSWindow?
     private var animationView: ListeningAnimationView?
     private var label: NSTextField?
+    private var previewLabel: NSTextField?
     private var currentStatus: Status?
+    private var currentPreviewText: String = ""
     private let mainOverlayAnimationSize: CGFloat = 36
     private let mainOverlayPadding: CGFloat = 6
     private let mainOverlayLabelHeight: CGFloat = 14
     private let mainOverlayLabelFont = NSFont.systemFont(ofSize: 8, weight: .medium)
+    private let previewFont = NSFont.systemFont(ofSize: 11, weight: .regular)
+    private let previewMaxWidth: CGFloat = 380
 
     // Small status indicator for loading/not-ready states
     private var statusWindow: NSWindow?
@@ -20,7 +24,6 @@ class RecordingOverlayWindow {
     private var statusPulseTimer: Timer?
 
     func show(status: Status, detail: String = "") {
-        // Hide the small status indicator when showing the main overlay
         hideStatusIndicator()
 
         let text: String
@@ -33,31 +36,27 @@ class RecordingOverlayWindow {
             text = detail.isEmpty ? "Done!" : "Done! \(detail)"
         }
 
+        let previousStatus = currentStatus
         currentStatus = status
 
+        if status != .listening {
+            currentPreviewText = ""
+        }
+
+        let previewHeight = previewTextHeight()
         let textWidth = ceil((text as NSString).size(withAttributes: [.font: mainOverlayLabelFont]).width)
-        let winW = max(mainOverlayAnimationSize + mainOverlayPadding * 2, textWidth + 12)
-        let winH = mainOverlayAnimationSize + mainOverlayLabelHeight + mainOverlayPadding * 3
+        let previewW = currentPreviewText.isEmpty ? CGFloat(0) : min(previewMaxWidth, previewTextWidth() + 24)
+        let winW = max(mainOverlayAnimationSize + mainOverlayPadding * 2, textWidth + 12, previewW)
+        let winH = mainOverlayAnimationSize + mainOverlayLabelHeight + mainOverlayPadding * 3 + previewHeight
 
         if let win = window, let lbl = label, let anim = animationView {
             lbl.stringValue = text
-            lbl.frame = NSRect(x: 2, y: mainOverlayPadding - 1, width: winW - 4, height: mainOverlayLabelHeight)
-            anim.frame = NSRect(
-                x: (winW - mainOverlayAnimationSize) / 2,
-                y: mainOverlayLabelHeight + mainOverlayPadding * 2,
-                width: mainOverlayAnimationSize,
-                height: mainOverlayAnimationSize
-            )
-            win.contentView?.frame = NSRect(x: 0, y: 0, width: winW, height: winH)
-            win.contentView?.subviews.first?.frame = NSRect(x: 0, y: 0, width: winW, height: winH)
-            win.setContentSize(NSSize(width: winW, height: winH))
-            centerWindow(win, width: winW, height: winH)
-            anim.setStatus(status)
+            relayout(win: win, lbl: lbl, anim: anim, winW: winW, winH: winH, previewHeight: previewHeight)
+            if previousStatus != status { anim.setStatus(status) }
             win.orderFront(nil)
             return
         }
 
-        // Create window
         let win = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: winW, height: winH),
             styleMask: [.borderless],
@@ -74,17 +73,15 @@ class RecordingOverlayWindow {
         let container = NSView(frame: NSRect(x: 0, y: 0, width: winW, height: winH))
         container.wantsLayer = true
 
-        // Background pill
         let bg = NSView(frame: NSRect(x: 0, y: 0, width: winW, height: winH))
         bg.wantsLayer = true
         bg.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.8).cgColor
         bg.layer?.cornerRadius = 10
         container.addSubview(bg)
 
-        // Animation view
         let anim = ListeningAnimationView(frame: NSRect(
             x: (winW - mainOverlayAnimationSize) / 2,
-            y: mainOverlayLabelHeight + mainOverlayPadding * 2,
+            y: mainOverlayLabelHeight + mainOverlayPadding * 2 + previewHeight,
             width: mainOverlayAnimationSize,
             height: mainOverlayAnimationSize
         ))
@@ -92,7 +89,6 @@ class RecordingOverlayWindow {
         container.addSubview(anim)
         self.animationView = anim
 
-        // Label
         let lbl = NSTextField(labelWithString: text)
         lbl.font = mainOverlayLabelFont
         lbl.textColor = .white
@@ -105,18 +101,114 @@ class RecordingOverlayWindow {
         container.addSubview(lbl)
         self.label = lbl
 
+        if previewHeight > 0 {
+            let pLbl = makePreviewLabel(winW: winW, previewHeight: previewHeight)
+            container.addSubview(pLbl)
+            self.previewLabel = pLbl
+        }
+
         win.contentView = container
-
         centerWindow(win, width: winW, height: winH)
-
         win.orderFront(nil)
         self.window = win
+    }
+
+    func updatePreviewText(_ text: String) {
+        guard currentStatus == .listening else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != currentPreviewText else { return }
+        currentPreviewText = trimmed
+        guard let win = window, let lbl = label, let anim = animationView else { return }
+
+        let previewHeight = previewTextHeight()
+        let statusText = lbl.stringValue
+        let textWidth = ceil((statusText as NSString).size(withAttributes: [.font: mainOverlayLabelFont]).width)
+        let previewW = currentPreviewText.isEmpty ? CGFloat(0) : min(previewMaxWidth, previewTextWidth() + 24)
+        let winW = max(mainOverlayAnimationSize + mainOverlayPadding * 2, textWidth + 12, previewW)
+        let winH = mainOverlayAnimationSize + mainOverlayLabelHeight + mainOverlayPadding * 3 + previewHeight
+
+        if currentPreviewText.isEmpty {
+            previewLabel?.removeFromSuperview()
+            previewLabel = nil
+        } else if let pLbl = previewLabel {
+            pLbl.stringValue = currentPreviewText
+            pLbl.frame = NSRect(x: 8, y: mainOverlayLabelHeight + mainOverlayPadding, width: winW - 16, height: previewHeight)
+        } else {
+            let pLbl = makePreviewLabel(winW: winW, previewHeight: previewHeight)
+            win.contentView?.addSubview(pLbl)
+            self.previewLabel = pLbl
+            pLbl.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                pLbl.animator().alphaValue = 1.0
+            }
+        }
+
+        relayout(win: win, lbl: lbl, anim: anim, winW: winW, winH: winH, previewHeight: previewHeight)
+    }
+
+    private func makePreviewLabel(winW: CGFloat, previewHeight: CGFloat) -> NSTextField {
+        let pLbl = NSTextField(wrappingLabelWithString: currentPreviewText)
+        pLbl.font = previewFont
+        pLbl.textColor = NSColor.white.withAlphaComponent(0.9)
+        pLbl.alignment = .center
+        pLbl.frame = NSRect(x: 8, y: mainOverlayLabelHeight + mainOverlayPadding, width: winW - 16, height: previewHeight)
+        pLbl.isEditable = false
+        pLbl.isBordered = false
+        pLbl.backgroundColor = .clear
+        pLbl.maximumNumberOfLines = 4
+        pLbl.lineBreakMode = .byTruncatingHead
+        pLbl.cell?.truncatesLastVisibleLine = true
+        return pLbl
+    }
+
+    private func relayout(win: NSWindow, lbl: NSTextField, anim: ListeningAnimationView, winW: CGFloat, winH: CGFloat, previewHeight: CGFloat) {
+        lbl.frame = NSRect(x: 2, y: mainOverlayPadding - 1, width: winW - 4, height: mainOverlayLabelHeight)
+        previewLabel?.frame = NSRect(x: 8, y: mainOverlayLabelHeight + mainOverlayPadding, width: winW - 16, height: previewHeight)
+        anim.frame = NSRect(
+            x: (winW - mainOverlayAnimationSize) / 2,
+            y: mainOverlayLabelHeight + mainOverlayPadding * 2 + previewHeight,
+            width: mainOverlayAnimationSize,
+            height: mainOverlayAnimationSize
+        )
+        win.contentView?.frame = NSRect(x: 0, y: 0, width: winW, height: winH)
+        if let bg = win.contentView?.subviews.first {
+            bg.frame = NSRect(x: 0, y: 0, width: winW, height: winH)
+        }
+        win.setContentSize(NSSize(width: winW, height: winH))
+        centerWindow(win, width: winW, height: winH)
+    }
+
+    private func previewTextHeight() -> CGFloat {
+        guard !currentPreviewText.isEmpty else { return 0 }
+        let maxW = previewMaxWidth - 16
+        let boundingRect = (currentPreviewText as NSString).boundingRect(
+            with: NSSize(width: maxW, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: previewFont]
+        )
+        let lineHeight = previewFont.ascender - previewFont.descender + previewFont.leading
+        let maxLines: CGFloat = 4
+        return min(ceil(boundingRect.height), lineHeight * maxLines) + mainOverlayPadding
+    }
+
+    private func previewTextWidth() -> CGFloat {
+        guard !currentPreviewText.isEmpty else { return 0 }
+        let boundingRect = (currentPreviewText as NSString).boundingRect(
+            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            attributes: [.font: previewFont]
+        )
+        return min(ceil(boundingRect.width), previewMaxWidth - 16)
     }
 
     func hide() {
         animationView?.stopAnimating()
         window?.orderOut(nil)
         currentStatus = nil
+        currentPreviewText = ""
+        previewLabel?.removeFromSuperview()
+        previewLabel = nil
     }
 
     // MARK: - Small Status Indicator (loading/not-ready)

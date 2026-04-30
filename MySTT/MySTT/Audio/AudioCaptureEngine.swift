@@ -113,6 +113,13 @@ class AudioCaptureEngine: ObservableObject {
         DispatchQueue.main.async { self.isRecording = true }
     }
 
+    func currentBuffer() -> AVAudioPCMBuffer? {
+        audioBuffersLock.lock()
+        let snapshot = audioBuffers
+        audioBuffersLock.unlock()
+        return mergeBuffers(snapshot)
+    }
+
     func stopRecording() -> AVAudioPCMBuffer? {
         guard isRecording else { return nil }
 
